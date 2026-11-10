@@ -5,6 +5,8 @@ import math
 
 import zstandard
 
+from .archive import contained_archive_path
+
 from .analysis.units import (
     resp_rate_bpm,
     skin_temp_celsius,
@@ -74,10 +76,10 @@ def query_stream(conn, kind, device_id, start, end, limit=5000, max_points=None)
     ``limit`` is a hard safety cap on the number of returned rows. ``max_points``,
     when set, enables server-side time-bucket downsampling for high-rate streams so
     the FULL range renders (bucketed to ~chart resolution) with the latest sample at
-    the right edge — instead of returning only the oldest ``limit`` rows.
+    the right edge - instead of returning only the oldest ``limit`` rows.
 
     Downsampling triggers only when (a) ``max_points`` is set, (b) the kind is
-    downsampleable (numeric value cols — `events` is excluded), and (c) the raw row
+    downsampleable (numeric value cols - `events` is excluded), and (c) the raw row
     count in the window exceeds ``max_points``. We do a cheap COUNT(*) first to decide;
     when it's within budget we fall through to the exact (un-bucketed) path so existing
     callers and small windows see ZERO behaviour change.
@@ -93,7 +95,7 @@ def query_stream(conn, kind, device_id, start, end, limit=5000, max_points=None)
     if max_points is not None and max_points > 0 and kind in _DOWNSAMPLE:
         # One probe: row count + the ACTUAL data extent inside the window. Bucket width
         # must be derived from the real data span (epoch seconds), not the caller's
-        # nominal [start,end] — the dashboard's "all" range is a giant sentinel
+        # nominal [start,end] - the dashboard's "all" range is a giant sentinel
         # (from=0&to=2e9), and using it would collapse hours of data into one bucket.
         total, span = conn.execute(
             f"SELECT count(*), "
@@ -128,7 +130,7 @@ def _query_stream_downsampled(conn, kind, table, value_cols, device_id,
     rounding = _DOWNSAMPLE[kind]
     # Average only the NUMERIC columns named in _DOWNSAMPLE (e.g. battery.charging is a
     # boolean and must never reach avg()). Non-averaged value cols are dropped from the
-    # downsampled view — acceptable, and battery is fetched without max_points anyway.
+    # downsampled view - acceptable, and battery is fetched without max_points anyway.
     avg_cols = [c for c in value_cols if c in rounding]
     avg_exprs = ", ".join(f"avg({c}) AS {c}" for c in avg_cols)
     cols = ["ts"] + avg_cols
@@ -179,7 +181,7 @@ def _augment_units(kind, rows):
     elif kind == "skin_temp":
         for r in rows:
             r["value"] = round(skin_temp_celsius(r["raw"]), 1)
-            r["unit"] = "°C"
+            r["unit"] = "�C"
     elif kind == "resp":
         for r in rows:
             r["value"] = round(resp_rate_bpm(r["raw"]), 1)
@@ -206,7 +208,7 @@ def counts(conn, device_id, start, end):
     return out
 
 
-# ── Profile reads ─────────────────────────────────────────────────────────────
+# �� Profile reads �������������������������������������������������������������
 
 _PROFILE_COLS = ["device_id", "height_cm", "weight_kg", "age", "sex", "updated_at"]
 
@@ -222,7 +224,7 @@ def query_profile(conn, device_id: str) -> dict | None:
     return dict(zip(_PROFILE_COLS, row))
 
 
-# ── Derived daily-analysis reads (Task 2.5) ──────────────────────────────────
+# �� Derived daily-analysis reads (Task 2.5) ����������������������������������
 
 _DAILY_COLS = ["device_id", "day", "total_sleep_min", "efficiency", "deep_min",
                "rem_min", "light_min", "disturbances", "resting_hr", "avg_hrv",
@@ -244,7 +246,7 @@ def query_daily(conn, device_id, start_date, end_date):
 def query_sleep(conn, device_id, day):
     """Sleep sessions for a device whose END falls on ``day`` (the night ending
     that morning). ``day`` is a datetime.date (or YYYY-MM-DD string). Stages are
-    returned parsed (JSONB → list). Timestamps are tz-aware datetimes (ISO on the wire)."""
+    returned parsed (JSONB  list). Timestamps are tz-aware datetimes (ISO on the wire)."""
     cols = ["device_id", "start_ts", "end_ts", "efficiency", "resting_hr", "avg_hrv", "stages"]
     rows = conn.execute(
         f"SELECT {', '.join(cols)} FROM sleep_sessions "
@@ -279,9 +281,11 @@ def query_workouts(conn, device_id, start_date, end_date):
 from whoop_protocol import parse_frame
 
 
-def read_batch_frames(file_path):
+def read_batch_frames(file_path, *, raw_root=None):
     """Decompress a batch's .zst archive and parse each frame via whoop-protocol.
     Returns [{seq, hex, type_name, crc_ok, fields, parsed}] in archived order."""
+    if raw_root is not None:
+        file_path = contained_archive_path(raw_root, file_path)
     with open(file_path, "rb") as fh:
         raw = zstandard.ZstdDecompressor().decompress(fh.read())
     out = []
