@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import db, ingest, read, store
+from . import archive, db, ingest, read, store
 from .analysis import daily
 from .config import load_config
 
@@ -30,7 +30,7 @@ app.mount("/static", StaticFiles(directory=_STATIC), name="static")
 
 # --- Auto-recompute throttle -------------------------------------------------
 # The phone uploads opportunistically (every ~30s while connected, plus backlog
-# drains), so /v1/ingest-decoded can fire many times per minute — each touching
+# drains), so /v1/ingest-decoded can fire many times per minute - each touching
 # the SAME current day. compute_day now runs the heavy neurokit sleep-staging
 # pipeline, so recomputing a day on every upload saturates CPU/memory. We
 # therefore (a) single-flight recomputes (never run two at once) and (b) debounce
@@ -83,7 +83,7 @@ class IngestBatch(BaseModel):
     decode_streams: bool = True
 
 
-# ── Decoded-upload models ────────────────────────────────────────────────────
+# �� Decoded-upload models ����������������������������������������������������
 
 class DecodedDevice(BaseModel):
     id: str
@@ -122,9 +122,12 @@ def healthz():
 @app.post("/v1/ingest", dependencies=[Depends(require_auth)])
 def ingest_batch(batch: IngestBatch):
     payload = batch.model_dump()
-    with psycopg.connect(cfg.db_dsn) as conn:
-        result = ingest.process_batch(conn, cfg, payload)
-        conn.commit()
+    try:
+        with psycopg.connect(cfg.db_dsn) as conn:
+            result = ingest.process_batch(conn, cfg, payload)
+            conn.commit()
+    except archive.InvalidArchivePath as exc:
+        raise HTTPException(status_code=400, detail="invalid archive identifier") from exc
     return result
 
 
@@ -150,9 +153,9 @@ def ingest_decoded(batch: DecodedBatch):
                             name=payload["device"].get("name"))
         counts = store.upsert_streams(conn, device_id, payload["streams"])
         conn.commit()
-        # Recompute the day(s) this batch touched — throttled (see _RECOMPUTE_*).
+        # Recompute the day(s) this batch touched - throttled (see _RECOMPUTE_*).
         # Best-effort: a compute error must NOT fail the ingest (the raw streams
-        # are already persisted) — log + move on.
+        # are already persisted) - log + move on.
         for day in _batch_dates_utc(payload["streams"]):
             key = (device_id, day)
             if time.monotonic() - _last_recompute.get(key, 0.0) < _RECOMPUTE_COOLDOWN_S:
@@ -206,7 +209,7 @@ def get_stream(kind: str, device: str,
         raise HTTPException(status_code=404, detail=f"unknown stream kind: {kind}")
 
 
-# ── Daily analysis endpoints (Task 2.5) ──────────────────────────────────────
+# �� Daily analysis endpoints (Task 2.5) ��������������������������������������
 
 class ComputeDaily(BaseModel):
     device: str
@@ -248,7 +251,7 @@ def get_sleep(device: str, date: str):
         return read.query_sleep(conn, device, day)
 
 
-# ── Profile endpoints ─────────────────────────────────────────────────────────
+# �� Profile endpoints ���������������������������������������������������������
 
 _VALID_SEX = {"male", "female", "nonbinary"}
 
@@ -292,7 +295,7 @@ def upsert_profile(body: ProfileBody):
     return row
 
 
-# ── Workouts endpoint ─────────────────────────────────────────────────────────
+# �� Workouts endpoint ���������������������������������������������������������
 
 @app.get("/v1/workouts", dependencies=[Depends(require_auth)])
 def get_workouts(device: str,
@@ -304,7 +307,7 @@ def get_workouts(device: str,
         return read.query_workouts(conn, device, start, end)
 
 
-# ── Backfill workouts endpoint ────────────────────────────────────────────────
+# �� Backfill workouts endpoint ������������������������������������������������
 
 class BackfillWorkouts(BaseModel):
     device: str
@@ -320,7 +323,7 @@ class BackfillWorkouts(BaseModel):
 @app.post("/v1/backfill-workouts", dependencies=[Depends(require_auth)])
 def backfill_workouts(body: BackfillWorkouts):
     """Recompute exercise sessions (with calories) over a date range by replaying
-    compute_day for each date. Idempotent — safe to re-run. May be slow for large
+    compute_day for each date. Idempotent - safe to re-run. May be slow for large
     ranges (runs the full daily pipeline per day). Auth-gated."""
     from_str = body.from_date
     to_str = body.to_date
@@ -355,4 +358,7 @@ def get_batch_frames(batch_id: str):
         ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="batch not found")
-    return read.read_batch_frames(row[0])
+    try:
+        return read.read_batch_frames(row[0], raw_root=cfg.raw_root)
+    except archive.InvalidArchivePath as exc:
+        raise HTTPException(status_code=400, detail="invalid archive path") from exc
