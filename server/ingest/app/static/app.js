@@ -15,6 +15,7 @@ const CATEGORIES = ['frame','cmd','time','hr','rr','accel','gyro','ppg','battery
 const STAGE = {deep:'#3b6bff', light:'#2ee6c6', rem:'#c08bff', wake:'#ff9f43'};
 const STAGE_ORDER = ['deep','light','rem','wake'];
 
+const HTML_ENTITIES = { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' };
 const $ = s => document.querySelector(s);
 const state = { device: null, range: 'all', selField: -1, frame: null, researchOpen: false };
 
@@ -27,7 +28,8 @@ async function init(){
     const devs = await api('/v1/devices');
     const sel = $('#device-sel');
     if(!devs.length){ status('no devices in datastore yet — run the uploader'); return; }
-    sel.innerHTML = devs.map(d=>`<option value="${d.device_id}">${d.device_id}</option>`).join('');
+    sel.replaceChildren();
+    for(const {device_id} of devs) sel.add(new Option(device_id, device_id));
     state.device = devs[0].device_id;
     await loadAll();
   }catch(e){ status('error: '+e.message); }
@@ -222,7 +224,7 @@ function renderDaily(d, series, sleep){
       <div class="dcard strain">
         <label>Strain <span class="approx">≈ approx</span></label>
         <div class="big-metric">${strain==null?'—':strain.toFixed(1)}<span class="unit">/21</span></div>
-        <div class="dsub">${exCount ? `<button class="btn ex-toggle" id="ex-toggle" data-day="${d.day}">exercises ${exCount} ▸</button>` : 'exercises 0'}</div>
+        <div class="dsub">${exCount ? `<button class="btn ex-toggle" id="ex-toggle" data-day="${escapeHtml(d.day)}">exercises ${exCount} ▸</button>` : 'exercises 0'}</div>
       </div>
       <div class="dcard biometrics">
         <label>Nightly biometrics <span class="approx">≈ uncalibrated</span></label>
@@ -291,12 +293,12 @@ async function toggleExerciseDetail(day, btn){
     const res = await apiPost('/v1/compute-daily', { device: state.device, date: day });
     const exs = res.exercises || [];
     if(!exs.length){
-      panel.innerHTML = `<div class="empty">no exercise sessions for ${day}</div>`;
+      panel.innerHTML = `<div class="empty">no exercise sessions for ${escapeHtml(day)}</div>`;
       return;
     }
     panel.innerHTML = `<div class="ex-list">${exs.map(e => renderExerciseBout(e)).join('')}</div>`;
   }catch(err){
-    panel.innerHTML = `<div class="empty">exercise detail unavailable (${err.message})</div>`;
+    panel.innerHTML = `<div class="empty">exercise detail unavailable (${escapeHtml(err.message)})</div>`;
   }
 }
 
@@ -313,7 +315,7 @@ function renderExerciseBout(e){
     if(pct < 0.5) return '';
     return `<i style="width:${pct.toFixed(1)}%;background:${ZONE_COLORS[z]}" title="Z${z} ${pct.toFixed(0)}%"></i>`;
   }).join('');
-  const kindLabel = e.kind ? `<span class="ex-kind">${e.kind}</span>` : '';
+  const kindLabel = e.kind ? `<span class="ex-kind">${escapeHtml(e.kind)}</span>` : '';
   return `<div class="ex-bout">
     ${kindLabel}
     <span class="ex-dur">${durMin==null?'—':durMin+'m'}</span>
@@ -371,8 +373,8 @@ function renderSleepHistory(nights){
       str!=null ? `strain ${str.toFixed(1)}` : null,
     ].filter(Boolean).join(' · ');
     const open = sleepState.openDay===n.day;
-    return `<div class="snight ${open?'open':''}" data-day="${n.day}">
-      <div class="snrow" data-day="${n.day}">
+    return `<div class="snight ${open?'open':''}" data-day="${escapeHtml(n.day)}">
+      <div class="snrow" data-day="${escapeHtml(n.day)}">
         <span class="sncaret">${open?'▾':'▸'}</span>
         <span class="snday">${fmtNightDay(n.day)}</span>
         <span class="snbar"><i style="width:${barPct.toFixed(1)}%"></i></span>
@@ -380,7 +382,7 @@ function renderSleepHistory(nights){
         <span class="sneff">${effPct==null?'—':effPct+'%'}</span>
       </div>
       <div class="snsub">${sub||'no stage breakdown'}</div>
-      <div class="sndetail" id="sndetail-${n.day}" ${open?'':'hidden'}></div>
+      <div class="sndetail" id="sndetail-${escapeHtml(n.day)}" ${open?'':'hidden'}></div>
     </div>`;
   }).join('');
   document.querySelectorAll('#sleep-body .snrow').forEach(r=>{
@@ -435,21 +437,21 @@ async function openNight(day){
       <span class="snd-metric">avg HRV <b>${fmtMetric(hrv,'ms')}</b></span>
     </div>
     <div class="chart-label"><span>HYPNOGRAM</span><span class="chart-unit"><span class="approx">≈ approx staging</span></span></div>
-    <canvas id="hypno-${day}" class="hypno" height="34"></canvas>
+    <canvas id="hypno-${escapeHtml(day)}" class="hypno" height="34"></canvas>
     <div class="stage-legend">${stageLine}</div>
     <div class="snd-charts">
       <div class="chart-wrap"><div class="chart-label"><span>HEART RATE</span><span class="chart-unit">bpm</span></div>
-        <canvas id="snd-hr-${day}" class="chart" height="80"></canvas></div>
+        <canvas id="snd-hr-${escapeHtml(day)}" class="chart" height="80"></canvas></div>
       <div class="chart-wrap"><div class="chart-label"><span>HRV (RR successive Δ)</span><span class="chart-unit">ms</span></div>
-        <canvas id="snd-hrv-${day}" class="chart" height="80"></canvas></div>
+        <canvas id="snd-hrv-${escapeHtml(day)}" class="chart" height="80"></canvas></div>
       <div class="chart-wrap"><div class="chart-label"><span>RESPIRATION</span><span class="chart-unit">bpm <span class="approx">≈ approx</span></span></div>
-        <canvas id="snd-resp-${day}" class="chart" height="80"></canvas></div>
+        <canvas id="snd-resp-${escapeHtml(day)}" class="chart" height="80"></canvas></div>
       <div class="chart-wrap"><div class="chart-label"><span>SpO₂</span><span class="chart-unit">% <span class="approx">≈ approx</span></span></div>
-        <canvas id="snd-spo2-${day}" class="chart" height="80"></canvas></div>
+        <canvas id="snd-spo2-${escapeHtml(day)}" class="chart" height="80"></canvas></div>
       <div class="chart-wrap"><div class="chart-label"><span>MOVEMENT</span><span class="chart-unit">Δg <span class="approx">L2 of gravity Δ</span></span></div>
-        <canvas id="snd-move-${day}" class="chart" height="80"></canvas></div>
+        <canvas id="snd-move-${escapeHtml(day)}" class="chart" height="80"></canvas></div>
     </div>
-    <button class="btn snd-close" data-day="${day}">▴ collapse</button>`;
+    <button class="btn snd-close" data-day="${escapeHtml(day)}">▴ collapse</button>`;
 
   // Hypnogram for this night.
   drawHypnogram($(`#hypno-${cssId(day)}`), segs, night);
@@ -867,7 +869,7 @@ function renderEvents(events){
   $('#events').innerHTML = events.map(e=>{
     const kind=(e.kind||'').replace(/\(\d+\)$/,'');
     return `<div class="erow"><span class="et">${fmtFull(e.ts)}</span>`+
-      `<span class="ek" style="color:${CAT.event}">${kind}</span></div>`;
+      `<span class="ek" style="color:${CAT.event}">${escapeHtml(kind)}</span></div>`;
   }).join('');
 }
 
@@ -884,9 +886,9 @@ function renderBatches(batches){
   $('#batch-list').innerHTML = batches.map(b=>{
     const span = b.start_ts ? `${fmtFull(b.start_ts)}` : 'no decoded ts';
     const kb = (b.byte_size/1024).toFixed(1);
-    return `<div class="brow" data-id="${b.batch_id}">`+
+    return `<div class="brow" data-id="${escapeHtml(b.batch_id)}">`+
       `<span class="bt">${span}</span>`+
-      `<span class="bp">${b.packet_count} pkt</span>`+
+      `<span class="bp">${escapeHtml(b.packet_count)} pkt</span>`+
       `<span class="bz">${kb} KB</span></div>`;
   }).join('');
   document.querySelectorAll('.brow').forEach(r => r.onclick = () => {
@@ -906,8 +908,8 @@ async function loadFrames(batchId){
     if(!frames.length){ $('#frame-list').innerHTML = `<div class="empty">no frames</div>`; return; }
     $('#frame-list').innerHTML = frames.map((f,i)=>{
       const crc = f.crc_ok===false?'✗':(f.crc_ok?'✓':'—');
-      return `<div class="frrow" data-i="${i}"><span class="frseq">#${f.seq}</span>`+
-        `<span class="frtype" style="color:${typeColor(f.type_name)}">${f.type_name||'?'}</span>`+
+      return `<div class="frrow" data-i="${i}"><span class="frseq">#${escapeHtml(f.seq)}</span>`+
+        `<span class="frtype" style="color:${typeColor(f.type_name)}">${escapeHtml(f.type_name||'?')}</span>`+
         `<span class="frcrc ${f.crc_ok===false?'bad':''}">${crc}</span></div>`;
     }).join('');
     document.querySelectorAll('.frrow').forEach(r => r.onclick = () => {
@@ -939,7 +941,7 @@ function inspectFrame(p, scroll=true){
       bytes+=`<span class="byte" data-field="${fi}" style="color:${col};background:${col}1a">${raw[o].toString(16).padStart(2,'0')}</span>`;
       const ch=raw[o]; ascii+= (ch>=32&&ch<127)?String.fromCharCode(ch):'·';
     }
-    html+=`<div class="hexrow"><span class="hoff">0x${r.toString(16).padStart(4,'0')}</span><span class="hbytes">${bytes}</span><span class="hascii">${ascii}</span></div>`;
+    html+=`<div class="hexrow"><span class="hoff">0x${r.toString(16).padStart(4,'0')}</span><span class="hbytes">${bytes}</span><span class="hascii">${escapeHtml(ascii)}</span></div>`;
   }
   $('#hexgrid').innerHTML=html;
   $('#pkt-meta').textContent = `${p.type_name} · ${raw.length}B · crc ${p.crc_ok===false?'✗':(p.crc_ok?'✓':'—')}`;
@@ -959,9 +961,9 @@ $('#hexgrid').addEventListener('mouseover',e=>{
   const f=state.frame.fields[fi];
   document.querySelectorAll(`.byte[data-field="${fi}"]`).forEach(x=>x.classList.add('hl'));
   document.querySelectorAll('.frow').forEach((row,i)=>row.classList.toggle('sel',i===fi));
-  tip.innerHTML=`<div class="tt-name">${f.name}</div><div class="tt-val">${fmtVal(f.value)}</div>`+
-    (f.note?`<div class="tt-note">${f.note}</div>`:'')+
-    `<div class="tt-off">off 0x${f.off.toString(16)} · ${f.len}B · ${f.cat}</div>`;
+  tip.innerHTML=`<div class="tt-name">${escapeHtml(f.name)}</div><div class="tt-val">${escapeHtml(fmtVal(f.value))}</div>`+
+    (f.note?`<div class="tt-note">${escapeHtml(f.note)}</div>`:'')+
+    `<div class="tt-off">off 0x${f.off.toString(16)} · ${f.len}B · ${escapeHtml(f.cat)}</div>`;
   tip.classList.add('show');
 });
 $('#hexgrid').addEventListener('mousemove',e=>{ tip.style.left=Math.min(e.clientX+14,innerWidth-300)+'px'; tip.style.top=(e.clientY+16)+'px'; });
@@ -974,9 +976,10 @@ function renderFields(p){
   const f=p.fields||[];
   $('#fields').innerHTML = f.map((x,i)=>{
     const col=CAT[x.cat]||CAT.unknown;
+    const value=escapeHtml(fmtVal(x.value));
     return `<div class="frow" data-i="${i}"><span class="swatch" style="background:${col}"></span>`+
-      `<span class="fname">${x.name}</span><span class="fval" title="${fmtVal(x.value)}">${fmtVal(x.value)}</span>`+
-      (x.note?`<span class="fnote">${x.note}</span>`:'')+`</div>`;
+      `<span class="fname">${escapeHtml(x.name)}</span><span class="fval" title="${value}">${value}</span>`+
+      (x.note?`<span class="fnote">${escapeHtml(x.note)}</span>`:'')+`</div>`;
   }).join('');
   document.querySelectorAll('#fields .frow').forEach(row=>{
     row.onmouseenter=()=>{ const i=+row.dataset.i; document.querySelectorAll(`.byte[data-field="${i}"]`).forEach(b=>b.classList.add('hl')); };
@@ -985,11 +988,11 @@ function renderFields(p){
   });
   const pv=p.parsed||{};
   $('#parsed').innerHTML = Object.keys(pv).length? Object.entries(pv).map(([k,v])=>
-    `<div class="kv"><b>${k}</b><span>${fmtVal(v)}</span></div>`).join('') :
+    `<div class="kv"><b>${escapeHtml(k)}</b><span>${escapeHtml(fmtVal(v))}</span></div>`).join('') :
     `<div class="kv"><b>no parsed fields</b><span>raw only</span></div>`;
 }
 function renderLegend(cats){
-  $('#legend').innerHTML = cats.map(c=>`<span class="lg"><i style="background:${CAT[c]||CAT.unknown}"></i>${c}</span>`).join('');
+  $('#legend').innerHTML = cats.map(c=>`<span class="lg"><i style="background:${CAT[c]||CAT.unknown}"></i>${escapeHtml(c)}</span>`).join('');
 }
 
 /* ---------- utils ---------- */
@@ -1014,6 +1017,10 @@ async function apiPost(path, body){
 }
 function status(m){ $('#status').textContent = m; }
 function tms(iso){ return new Date(iso).getTime(); }
+// Escape data interpolated into HTML text and quoted attributes.
+function escapeHtml(value){
+  return String(value).replace(/[&<>"']/g, char => HTML_ENTITIES[char]);
+}
 function hexToBytes(h){ const a=new Uint8Array(h.length/2); for(let i=0;i<a.length;i++)a[i]=parseInt(h.substr(i*2,2),16); return a; }
 function fmtVal(v){ if(v==null)return '—'; if(Array.isArray(v))return '['+v.join(', ')+']'; if(typeof v==='object')return JSON.stringify(v); return String(v); }
 function fmtTime(ms){ return new Date(ms).toLocaleString('en',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}); }

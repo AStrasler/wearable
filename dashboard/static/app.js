@@ -7,6 +7,7 @@ const CMDS = ['GET_BATTERY_LEVEL','GET_CLOCK','REPORT_VERSION_INFO','GET_HELLO_H
 const TYPE_ORDER = ['REALTIME_DATA','REALTIME_RAW_DATA','HISTORICAL_DATA','EVENT',
   'COMMAND_RESPONSE','METADATA','CONSOLE_LOGS'];
 
+const HTML_ENTITIES = { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' };
 const $ = s => document.querySelector(s);
 const latest = {};        // typeName -> packet rec
 const counts = {};        // typeName -> count
@@ -57,7 +58,7 @@ function renderState(s){
 function renderTabs(){
   const seen = Object.keys(latest).sort((a,b)=>(TYPE_ORDER.indexOf(a)+99)%100-(TYPE_ORDER.indexOf(b)+99)%100);
   $('#type-tabs').innerHTML = seen.map(t=>
-    `<span class="tab ${t===selected?'active':''}" data-t="${t}">${t}<span class="n">${counts[t]}</span></span>`).join('');
+    `<span class="tab ${t===selected?'active':''}" data-t="${escapeHtml(t)}">${escapeHtml(t)}<span class="n">${counts[t]}</span></span>`).join('');
   document.querySelectorAll('.tab').forEach(el=>el.onclick=()=>{
     selected=el.dataset.t; pinned=true; selField=-1; renderTabs(); renderInspector(latest[selected]); });
 }
@@ -80,7 +81,7 @@ function renderInspector(p){
       bytes+=`<span class="byte" data-field="${fi}" style="color:${col};background:${col}1a">${raw[o].toString(16).padStart(2,'0')}</span>`;
       const ch=raw[o]; ascii+= (ch>=32&&ch<127)?String.fromCharCode(ch):'·';
     }
-    html+=`<div class="hexrow"><span class="hoff">0x${r.toString(16).padStart(4,'0')}</span><span class="hbytes">${bytes}</span><span class="hascii">${ascii}</span></div>`;
+    html+=`<div class="hexrow"><span class="hoff">0x${r.toString(16).padStart(4,'0')}</span><span class="hbytes">${bytes}</span><span class="hascii">${escapeHtml(ascii)}</span></div>`;
   }
   $('#hexgrid').innerHTML=html;
   $('#pkt-meta').textContent = `${p.type_name} · ${raw.length}B · crc ${p.crc_ok===false?'✗':(p.crc_ok?'✓':'—')} · ${p.char}`;
@@ -101,9 +102,9 @@ $('#hexgrid').addEventListener('mouseover',e=>{
   const p=latest[selected]; const f=p.fields[fi];
   document.querySelectorAll(`.byte[data-field="${fi}"]`).forEach(x=>x.classList.add('hl'));
   document.querySelectorAll('.frow').forEach((row,i)=>row.classList.toggle('sel',i===fi));
-  tip.innerHTML=`<div class="tt-name">${f.name}</div><div class="tt-val">${fmtVal(f.value)}</div>`+
-    (f.note?`<div class="tt-note">${f.note}</div>`:'')+
-    `<div class="tt-off">off 0x${f.off.toString(16)} · ${f.len}B · ${f.cat}</div>`;
+  tip.innerHTML=`<div class="tt-name">${escapeHtml(f.name)}</div><div class="tt-val">${escapeHtml(fmtVal(f.value))}</div>`+
+    (f.note?`<div class="tt-note">${escapeHtml(f.note)}</div>`:'')+
+    `<div class="tt-off">off 0x${f.off.toString(16)} · ${f.len}B · ${escapeHtml(f.cat)}</div>`;
   tip.classList.add('show');
 });
 $('#hexgrid').addEventListener('mousemove',e=>{ tip.style.left=Math.min(e.clientX+14,innerWidth-300)+'px'; tip.style.top=(e.clientY+16)+'px'; });
@@ -118,9 +119,10 @@ function renderFields(p){
   const f=p.fields||[];
   $('#fields').innerHTML = f.map((x,i)=>{
     const col=CAT[x.cat]||CAT.unknown;
+    const value=escapeHtml(fmtVal(x.value));
     return `<div class="frow" data-i="${i}"><span class="swatch" style="background:${col}"></span>`+
-      `<span class="fname">${x.name}</span><span class="fval" title="${fmtVal(x.value)}">${fmtVal(x.value)}</span>`+
-      (x.note?`<span class="fnote">${x.note}</span>`:'')+`</div>`;
+      `<span class="fname">${escapeHtml(x.name)}</span><span class="fval" title="${value}">${value}</span>`+
+      (x.note?`<span class="fnote">${escapeHtml(x.note)}</span>`:'')+`</div>`;
   }).join('');
   document.querySelectorAll('.frow').forEach(row=>{
     row.onmouseenter=()=>{ const i=+row.dataset.i; document.querySelectorAll(`.byte[data-field="${i}"]`).forEach(b=>b.classList.add('hl')); };
@@ -129,13 +131,13 @@ function renderFields(p){
   });
   const pv=p.parsed||{};
   $('#parsed').innerHTML = Object.keys(pv).length? Object.entries(pv).map(([k,v])=>
-    `<div class="kv"><b>${k}</b><span>${fmtVal(v)}</span></div>`).join('') :
+    `<div class="kv"><b>${escapeHtml(k)}</b><span>${escapeHtml(fmtVal(v))}</span></div>`).join('') :
     `<div class="kv"><b>no parsed fields</b><span>raw only</span></div>`;
 }
 
 /* ---------- legend ---------- */
 function renderLegend(cats){
-  $('#legend').innerHTML = cats.map(c=>`<span class="lg"><i style="background:${CAT[c]||CAT.unknown}"></i>${c}</span>`).join('');
+  $('#legend').innerHTML = cats.map(c=>`<span class="lg"><i style="background:${CAT[c]||CAT.unknown}"></i>${escapeHtml(c)}</span>`).join('');
 }
 
 /* ---------- stream log ---------- */
@@ -148,12 +150,12 @@ function streamRow(p){
   else if(p.cmd_name) info=p.cmd_name;
   const t=new Date(p.ts*1000).toLocaleTimeString('en',{hour12:false});
   const col=CAT[(p.fields&&p.fields[3]&&p.fields[3].cat)]||'#9fb';
-  addLog(`<span class="lt">${t}</span><span class="ltype" style="color:${typeColor(p.type_name)}">${p.type_name}</span>`+
-    `<span class="lchar">${p.char}</span><span class="lsz">${p.len_bytes}B</span><span class="linfo">${info}</span>`,'');
+  addLog(`<span class="lt">${t}</span><span class="ltype" style="color:${typeColor(p.type_name)}">${escapeHtml(p.type_name)}</span>`+
+    `<span class="lchar">${escapeHtml(p.char)}</span><span class="lsz">${escapeHtml(p.len_bytes)}B</span><span class="linfo">${escapeHtml(info)}</span>`,'');
 }
 function typeColor(t){return ({REALTIME_DATA:CAT.hr,REALTIME_RAW_DATA:CAT.accel,HISTORICAL_DATA:CAT.meta,
   EVENT:CAT.event,COMMAND_RESPONSE:CAT.cmd,METADATA:CAT.meta,CONSOLE_LOGS:CAT.text})[t]||CAT.unknown;}
-function sys(msg){ addLog(`<span class="lt">${new Date().toLocaleTimeString('en',{hour12:false})}</span><span class="linfo">${msg}</span>`,'sys'); }
+function sys(msg){ addLog(`<span class="lt">${new Date().toLocaleTimeString('en',{hour12:false})}</span><span class="linfo">${escapeHtml(msg)}</span>`,'sys'); }
 function addLog(html,cls){ const l=$('#log'); const d=document.createElement('div'); d.className='lrow '+cls; d.innerHTML=html;
   l.prepend(d); while(l.children.length>120) l.lastChild.remove(); }
 
@@ -175,5 +177,9 @@ function send(o){ if(ws.readyState===1) ws.send(JSON.stringify(o)); }
 setInterval(()=>{ const now=performance.now(); const n=pktTimes.filter(t=>now-t<1000).length; $('#rate').textContent=n+' pkt/s'; },1000);
 
 /* ---------- utils ---------- */
+// Escape data interpolated into HTML text and quoted attributes.
+function escapeHtml(value){
+  return String(value).replace(/[&<>"']/g, char => HTML_ENTITIES[char]);
+}
 function hexToBytes(h){ const a=new Uint8Array(h.length/2); for(let i=0;i<a.length;i++)a[i]=parseInt(h.substr(i*2,2),16); return a; }
 function fmtVal(v){ if(v==null)return '—'; if(Array.isArray(v))return '['+v.join(', ')+']'; return String(v); }
