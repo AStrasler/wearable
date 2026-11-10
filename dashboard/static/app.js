@@ -7,7 +7,6 @@ const CMDS = ['GET_BATTERY_LEVEL','GET_CLOCK','REPORT_VERSION_INFO','GET_HELLO_H
 const TYPE_ORDER = ['REALTIME_DATA','REALTIME_RAW_DATA','HISTORICAL_DATA','EVENT',
   'COMMAND_RESPONSE','METADATA','CONSOLE_LOGS'];
 
-const HTML_ENTITIES = { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' };
 const $ = s => document.querySelector(s);
 const latest = {};        // typeName -> packet rec
 const counts = {};        // typeName -> count
@@ -137,7 +136,16 @@ function renderFields(p){
 
 /* ---------- legend ---------- */
 function renderLegend(cats){
-  $('#legend').innerHTML = cats.map(c=>`<span class="lg"><i style="background:${CAT[c]||CAT.unknown}"></i>${escapeHtml(c)}</span>`).join('');
+  const legend = $('#legend');
+  legend.replaceChildren();
+  for(const category of cats){
+    const item = document.createElement('span');
+    item.className = 'lg';
+    const swatch = document.createElement('i');
+    swatch.style.background = CAT[category] || CAT.unknown;
+    item.append(swatch, category);
+    legend.append(item);
+  }
 }
 
 /* ---------- stream log ---------- */
@@ -179,7 +187,8 @@ setInterval(()=>{ const now=performance.now(); const n=pktTimes.filter(t=>now-t<
 /* ---------- utils ---------- */
 // Escape data interpolated into HTML text and quoted attributes.
 function escapeHtml(value){
-  return String(value).replace(/[&<>"']/g, char => HTML_ENTITIES[char]);
+  return String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
 }
 function hexToBytes(h){ const a=new Uint8Array(h.length/2); for(let i=0;i<a.length;i++)a[i]=parseInt(h.substr(i*2,2),16); return a; }
 function fmtVal(v){ if(v==null)return '—'; if(Array.isArray(v))return '['+v.join(', ')+']'; return String(v); }

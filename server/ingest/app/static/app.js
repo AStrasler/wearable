@@ -15,7 +15,6 @@ const CATEGORIES = ['frame','cmd','time','hr','rr','accel','gyro','ppg','battery
 const STAGE = {deep:'#3b6bff', light:'#2ee6c6', rem:'#c08bff', wake:'#ff9f43'};
 const STAGE_ORDER = ['deep','light','rem','wake'];
 
-const HTML_ENTITIES = { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' };
 const $ = s => document.querySelector(s);
 const state = { device: null, range: 'all', selField: -1, frame: null, researchOpen: false };
 
@@ -288,18 +287,25 @@ async function toggleExerciseDetail(day, btn){
   _exState.openDay = day;
   if(btn){ btn.textContent = btn.textContent.replace('▸','▾'); }
   panel.hidden = false;
-  panel.innerHTML = `<div class="empty">loading exercise sessions…</div>`;
+  showExerciseMessage(panel, 'loading exercise sessions…');
   try{
     const res = await apiPost('/v1/compute-daily', { device: state.device, date: day });
     const exs = res.exercises || [];
     if(!exs.length){
-      panel.innerHTML = `<div class="empty">no exercise sessions for ${escapeHtml(day)}</div>`;
+      showExerciseMessage(panel, `no exercise sessions for ${day}`);
       return;
     }
     panel.innerHTML = `<div class="ex-list">${exs.map(e => renderExerciseBout(e)).join('')}</div>`;
   }catch(err){
-    panel.innerHTML = `<div class="empty">exercise detail unavailable (${escapeHtml(err.message)})</div>`;
+    showExerciseMessage(panel, `exercise detail unavailable (${err.message})`);
   }
+}
+
+function showExerciseMessage(panel, message){
+  const empty = document.createElement('div');
+  empty.className = 'empty';
+  empty.textContent = message;
+  panel.replaceChildren(empty);
 }
 
 function renderExerciseBout(e){
@@ -992,7 +998,16 @@ function renderFields(p){
     `<div class="kv"><b>no parsed fields</b><span>raw only</span></div>`;
 }
 function renderLegend(cats){
-  $('#legend').innerHTML = cats.map(c=>`<span class="lg"><i style="background:${CAT[c]||CAT.unknown}"></i>${escapeHtml(c)}</span>`).join('');
+  const legend = $('#legend');
+  legend.replaceChildren();
+  for(const category of cats){
+    const item = document.createElement('span');
+    item.className = 'lg';
+    const swatch = document.createElement('i');
+    swatch.style.background = CAT[category] || CAT.unknown;
+    item.append(swatch, category);
+    legend.append(item);
+  }
 }
 
 /* ---------- utils ---------- */
@@ -1019,7 +1034,8 @@ function status(m){ $('#status').textContent = m; }
 function tms(iso){ return new Date(iso).getTime(); }
 // Escape data interpolated into HTML text and quoted attributes.
 function escapeHtml(value){
-  return String(value).replace(/[&<>"']/g, char => HTML_ENTITIES[char]);
+  return String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
 }
 function hexToBytes(h){ const a=new Uint8Array(h.length/2); for(let i=0;i<a.length;i++)a[i]=parseInt(h.substr(i*2,2),16); return a; }
 function fmtVal(v){ if(v==null)return '—'; if(Array.isArray(v))return '['+v.join(', ')+']'; if(typeof v==='object')return JSON.stringify(v); return String(v); }

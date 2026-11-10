@@ -17,6 +17,7 @@ function loadDashboard(file, devices = []) {
         style: {},
         classList: { add() {}, remove() {} },
         prepend(child) { this.children.unshift(child); },
+        append(...children) { this.children.push(...children); },
         replaceChildren(...children) { this.children = children; },
         add(child) { this.children.push(child); },
         addEventListener(type, callback) { listeners.set(`${selector}:${type}`, callback); }
@@ -29,7 +30,7 @@ function loadDashboard(file, devices = []) {
     document: {
       querySelector: selector => selector === '.brow' ? null : element(selector),
       querySelectorAll: () => [],
-      createElement: () => ({ innerHTML: '' })
+      createElement: () => element(Symbol())
     },
     fetch: async route => {
       if (route === '/v1/devices') return { ok: true, json: async () => devices };
@@ -107,7 +108,17 @@ for (const [name, file, render, rawKey] of [
     assert.ok(element('#tooltip').innerHTML.includes(escaped));
     assert.ok(!element('#tooltip').innerHTML.includes('<img'));
 
+    context.categories = ['text', input];
+    run('renderLegend(categories)');
+    const legend = element('#legend').children;
+    assert.equal(legend[0].children[1], 'text');
+    assert.equal(legend[1].children[1], input);
+
     if (name === 'live') {
+      context.packetType = input;
+      run('latest[packetType] = packet; counts[packetType] = 1; renderTabs()');
+      assert.ok(element('#type-tabs').innerHTML.includes(`data-t="${escaped}"`));
+      assert.ok(!element('#type-tabs').innerHTML.includes('<img'));
       run('streamRow(packet); sys(packet.parsed.log)');
       for (const row of element('#log').children) {
         assert.ok(row.innerHTML.includes(escaped));
