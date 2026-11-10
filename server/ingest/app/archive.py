@@ -1,5 +1,5 @@
 """Raw batch archival: newline-delimited frame hex, zstd-compressed, content-addressed.
-Pure filesystem - no DB. One file per batch under <root>/<device>/<day>/<batch>.zst."""
+Pure filesystem — no DB. One file per batch under <root>/<device>/<day>/<batch>.zst."""
 import hashlib
 import ntpath
 import os
