@@ -8,8 +8,8 @@ const TYPE_ORDER = ['REALTIME_DATA','REALTIME_RAW_DATA','HISTORICAL_DATA','EVENT
   'COMMAND_RESPONSE','METADATA','CONSOLE_LOGS'];
 
 const $ = s => document.querySelector(s);
-const latest = {};        // typeName -> packet rec
-const counts = {};        // typeName -> count
+const latest = Object.create(null); // typeName -> packet rec
+const counts = Object.create(null); // typeName -> count
 let selected = null;      // pinned type
 let pinned = false;
 let hr = [], pktTimes = [], lastInspector = 0, selField = -1;
