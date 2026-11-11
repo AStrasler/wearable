@@ -1018,14 +1018,21 @@ function apiKey(){
   if(!k){ k = prompt('Whoop API key (read access):') || ''; if(k) localStorage.setItem('whoop_key', k); }
   return k;
 }
+function sameOriginApiUrl(path){
+  const url = new URL(path, window.location.href);
+  if(url.origin !== window.location.origin) throw new Error('API requests must stay on this origin');
+  return url.href;
+}
 async function api(path){
-  const r = await fetch(path, { headers: { 'Authorization': 'Bearer ' + apiKey() } });
+  const url = sameOriginApiUrl(path);
+  const r = await fetch(url, { headers: { 'Authorization': 'Bearer ' + apiKey() } });
   if(r.status === 401){ localStorage.removeItem('whoop_key'); throw new Error('401 unauthorized — refresh to re-enter the key'); }
   if(!r.ok) throw new Error(`${r.status} ${path}`);
   return r.json();
 }
 async function apiPost(path, body){
-  const r = await fetch(path, { method:'POST', headers:{ 'Authorization':'Bearer '+apiKey(), 'Content-Type':'application/json' }, body: JSON.stringify(body) });
+  const url = sameOriginApiUrl(path);
+  const r = await fetch(url, { method:'POST', headers:{ 'Authorization':'Bearer '+apiKey(), 'Content-Type':'application/json' }, body: JSON.stringify(body) });
   if(r.status === 401){ localStorage.removeItem('whoop_key'); throw new Error('401 unauthorized'); }
   if(!r.ok) throw new Error(`${r.status} ${path}`);
   return r.json();
