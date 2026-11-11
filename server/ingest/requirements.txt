@@ -10,4 +10,4 @@ scikit-learn==1.8.0
 pandas==2.3.3
 # --- whoop official API client (Task 4) ---
 httpx>=0.27
-starlette>=1.3.1 # transitive dependency floor; addresses all currently identified Starlette advisories
+starlette==1.3.1 # transitive dependency pin; minimum identified version resolving all current advisories
