@@ -211,7 +211,7 @@ def test_read_batch_frames_parses_archive(tmp_path):
     # write a real REALTIME_DATA frame to an archive, then read+parse it back
     hr_frame = bytes.fromhex("aa1800ff28020f3de10128663c00000000000000000001010d844e7c")
     meta = archive.write_raw_batch(str(tmp_path), "devA", "b1", "2026-05-23", [hr_frame])
-    frames = read_mod.read_batch_frames(meta["file_path"])
+    frames = read_mod.read_batch_frames(meta["file_path"], raw_root=str(tmp_path))
     assert len(frames) == 1
     f = frames[0]
     assert f["type_name"] == "REALTIME_DATA"

@@ -281,11 +281,11 @@ def query_workouts(conn, device_id, start_date, end_date):
 from whoop_protocol import parse_frame
 
 
-def read_batch_frames(file_path, *, raw_root=None):
+def read_batch_frames(file_path, *, raw_root):
     """Decompress a batch's .zst archive and parse each frame via whoop-protocol.
-    Returns [{seq, hex, type_name, crc_ok, fields, parsed}] in archived order."""
-    if raw_root is not None:
-        file_path = contained_archive_path(raw_root, file_path)
+    Returns [{seq, hex, type_name, crc_ok, fields, parsed}] in archived order.
+    ``raw_root`` is mandatory so no caller can bypass archive containment."""
+    file_path = contained_archive_path(raw_root, file_path)
     with open(file_path, "rb") as fh:
         raw = zstandard.ZstdDecompressor().decompress(fh.read())
     out = []

@@ -34,6 +34,13 @@ def test_rejects_stored_external_path_and_prefix_sibling(tmp_path):
             read_batch_frames(str(target), raw_root=str(root))
 
 
+def test_read_requires_archive_root(tmp_path):
+    from app.read import read_batch_frames
+
+    with pytest.raises(TypeError, match="raw_root"):
+        read_batch_frames(str(tmp_path / "outside.zst"))
+
+
 def test_rejects_existing_symlink_escape(tmp_path):
     root = tmp_path / "raw"
     outside = tmp_path / "outside"
