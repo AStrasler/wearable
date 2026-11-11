@@ -1,0 +1,84 @@
+name: Pullfrog OIDC push permission smoke test
+
+on:
+  push:
+    branches:
+      - codex/jira-workflow-security-20261110
+
+permissions: {}
+
+jobs:
+  oidc-push-dry-run:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out without persisting the job token
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.1.7
+        with:
+          persist-credentials: false
+      - name: Exchange OIDC and verify a write-scoped Git push without updating refs
+        env:
+          ACTIONS_ID_TOKEN_REQUEST_URL: ${{ secrets.ACTIONS_ID_TOKEN_REQUEST_URL }}
+          ACTIONS_ID_TOKEN_REQUEST_TOKEN: ${{ secrets.ACTIONS_ID_TOKEN_REQUEST_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { execFileSync } from "node:child_process";
+
+          const oidcUrl = new URL(process.env.ACTIONS_ID_TOKEN_REQUEST_URL);
+          oidcUrl.searchParams.set("audience", "pullfrog-api");
+          const idResponse = await fetch(oidcUrl, {
+            headers: { authorization: `Bearer ${process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN}` },
+          });
+          if (!idResponse.ok) throw new Error(`OIDC request failed: HTTP ${idResponse.status}`);
+          const { value: idToken } = await idResponse.json();
+          if (!idToken) throw new Error("OIDC response omitted token");
+
+          const repo = process.env.GITHUB_REPOSITORY.split("/")[1];
+          const exchangeUrl = new URL(
+            `/api/github/installation-token?repos=${encodeURIComponent(repo)}`,
+            "https://pullfrog.com",
+          );
+          const tokenResponse = await fetch(exchangeUrl, {
+            method: "POST",
+            headers: {
+              authorization: `Bearer ${idToken}`,
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({
+              permissions: { contents: "write", workflows: "write" },
+            }),
+          });
+          if (!tokenResponse.ok) {
+            throw new Error(`Pullfrog token exchange failed: HTTP ${tokenResponse.status}`);
+          }
+          const { token } = await tokenResponse.json();
+          if (!token) throw new Error("Token exchange response omitted token");
+
+          process.stdout.write(`::add-mask::${token}\n`);
+          const auth = Buffer.from(`x-access-token:${token}`).toString("base64");
+          execFileSync(
+            "git",
+            [
+              "push",
+              "--dry-run",
+              "--quiet",
+              "origin",
+              `HEAD:refs/heads/oidc-smoke/${process.env.GITHUB_RUN_ID}`,
+            ],
+            {
+              stdio: "pipe",
+              env: {
+                ...process.env,
+                GIT_CONFIG_COUNT: "1",
+                GIT_CONFIG_KEY_0: "http.https://github.com/.extraheader",
+                GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${auth}`,
+              },
+            },
+          );
+          console.log("OIDC exchange succeeded; repository-scoped write push passed dry-run.");
+          NODE
