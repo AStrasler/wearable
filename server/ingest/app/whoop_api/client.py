@@ -181,7 +181,8 @@ class WhoopClient:
         """Return a valid access token, refreshing if expired or missing."""
         if self._access_token is None or time.monotonic() >= self._token_expires_at:
             self._refresh()
-        assert self._access_token is not None
+        if self._access_token is None:
+            raise RuntimeError("token refresh did not provide an access token")
         return self._access_token
 
     # ------------------------------------------------------------------
