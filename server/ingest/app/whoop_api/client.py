@@ -242,8 +242,8 @@ class WhoopClient:
                 break
             if next_token in seen_tokens:
                 log.warning(
-                    "_paginate: next_token %r repeated on %s — stopping to avoid infinite loop",
-                    next_token, path,
+                    "_paginate: repeated pagination cursor on %s — stopping to avoid infinite loop",
+                    path,
                 )
                 break
             seen_tokens.add(next_token)
