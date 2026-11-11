@@ -11,6 +11,8 @@ from . import archive, store
 def process_batch(conn: psycopg.Connection, cfg, batch: dict) -> dict:
     batch_id = batch["batch_id"]
     device_id = batch["device"]["device_id"]
+    archive.validate_component(device_id)
+    archive.validate_component(batch_id)
     device_ref = int(batch["clock_ref"]["device"])
     wall_ref = int(batch["clock_ref"]["wall"])
     frames = [bytes.fromhex(f["hex"]) for f in batch["frames"]]

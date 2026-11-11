@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 import zstandard
 
@@ -38,7 +40,46 @@ def test_read_requires_archive_root(tmp_path):
     from app.read import read_batch_frames
 
     with pytest.raises(TypeError, match="raw_root"):
-        read_batch_frames(str(tmp_path / "outside.zst"))
+        read_batch_frames(str(tmp_path / "outside.zst"))  # pylint: disable=missing-kwoa
+
+
+def test_rejects_in_root_symlink_for_write_and_read(tmp_path):
+    from app.read import read_batch_frames
+
+    root = tmp_path / "raw"
+    target_root = root / "real-device"
+    result = write_raw_batch(str(root), "real-device", "batch", "2026-05-23", [b"\xaa\x00"])
+    original = Path(result["file_path"]).read_bytes()
+    try:
+        (root / "alias").symlink_to(target_root, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unavailable: {exc}")
+
+    with pytest.raises(InvalidArchivePath):
+        write_raw_batch(str(root), "alias", "batch", "2026-05-23", [b"\xbb"])
+    with pytest.raises(InvalidArchivePath):
+        read_batch_frames(str(root / "alias" / "2026-05-23" / "batch.zst"), raw_root=str(root))
+    assert Path(result["file_path"]).read_bytes() == original
+
+
+def test_invalid_ids_are_rejected_before_device_or_dedupe_writes(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from app import ingest
+
+    calls = []
+    monkeypatch.setattr(ingest.store, "ensure_device", lambda *args, **kwargs: calls.append("device"))
+    monkeypatch.setattr(ingest.store, "batch_exists", lambda *args, **kwargs: calls.append("dedupe") or True)
+
+    for device_id, batch_id in [("../escape", "b1"), ("devA", "../escape")]:
+        batch = {
+            "batch_id": batch_id,
+            "device": {"device_id": device_id},
+            "clock_ref": {"device": 1, "wall": 1},
+            "frames": [],
+        }
+        with pytest.raises(InvalidArchivePath):
+            ingest.process_batch(None, SimpleNamespace(raw_root=str(tmp_path)), batch)
+    assert calls == []
 
 
 def test_rejects_existing_symlink_escape(tmp_path):
