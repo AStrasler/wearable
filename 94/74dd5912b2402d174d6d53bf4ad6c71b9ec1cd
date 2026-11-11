@@ -1,0 +1,14 @@
+server/ingest/tests/conftest.py
+  h_43bd93ed2f90ff 5,20,35,39,41-42,62
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9474dd5912b2402d174d6d53bf4ad6c71b9ec1cd",
+  "prompts": {},
+  "humans": {
+    "h_43bd93ed2f90ff": {
+      "author": "Aaron Strasler <Aaron.M.Strasler@outlook.com>"
+    }
+  }
+}
