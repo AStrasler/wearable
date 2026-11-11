@@ -23,8 +23,9 @@ jobs:
       - name: Install ingest test dependencies
         run: python -m pip install --disable-pip-version-check -r server/ingest/requirements-dev.txt
       - name: Run archive and read containment regressions
+        working-directory: server/ingest
         run: >-
           python -m pytest -q
-          server/ingest/tests/test_archive_path_security.py
-          server/ingest/tests/test_archive.py
-          server/ingest/tests/test_read.py
+          tests/test_archive_path_security.py
+          tests/test_archive.py
+          tests/test_read.py
