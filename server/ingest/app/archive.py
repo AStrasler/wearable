@@ -10,9 +10,12 @@ def write_raw_batch(root: str, device_id: str, batch_id: str, day: str,
                     frames: list[bytes]) -> dict:
     """Write frames (as newline-delimited hex) to a zstd file. Returns metadata for the
     raw_batches index: file_path, sha256, byte_size, packet_count."""
-    out_dir = os.path.join(root, device_id, day)
+    root_path = os.path.realpath(root)
+    out_dir = os.path.realpath(os.path.join(root_path, device_id, day))
+    file_path = os.path.realpath(os.path.join(out_dir, f"{batch_id}.zst"))
+    if os.path.commonpath((root_path, file_path)) != root_path:
+        raise ValueError("raw batch path escapes configured root")
     os.makedirs(out_dir, exist_ok=True)
-    file_path = os.path.join(out_dir, f"{batch_id}.zst")
     payload = ("\n".join(f.hex() for f in frames)).encode()
     compressed = zstandard.ZstdCompressor(level=10).compress(payload)
     # atomic-ish write
