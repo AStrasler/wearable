@@ -541,7 +541,7 @@ function drawHypnogram(cv, segs, d){
 
 function renderStageLegend(el, segs, d){
   // Show per-stage total minutes. Real segments take priority; fall back to daily aggregate.
-  const mins = {};
+  const mins = Object.create(null);
   segs.forEach(s=>{ mins[s.stage] = (mins[s.stage]||0) + (s.end-s.start)/60; });
   const order = STAGE_ORDER.filter(k=>mins[k]!=null);
   if(order.length){
