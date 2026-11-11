@@ -5,6 +5,7 @@ import shutil
 import subprocess  # nosec B404
 import time
 import uuid
+from pathlib import Path
 
 import pytest
 
@@ -14,10 +15,30 @@ DB_USER = "whoop"
 DB_PASSWORD = "testpw"
 
 
+def _resolve_docker() -> str | None:
+    """Resolve Docker once; use the absolute executable for every test fixture call."""
+    found = shutil.which("docker")
+    if not found:
+        return None
+    path = Path(found).resolve()
+    return str(path) if path.is_file() else None
+
+
+_DOCKER = _resolve_docker()
+
+
+def _docker_argv(*args: str) -> list[str]:
+    if _DOCKER is None:
+        raise FileNotFoundError("Docker executable unavailable")
+    return [_DOCKER, *args]
+
+
 def _docker_available():
-    if shutil.which("docker") is None:
+    if _DOCKER is None:
         return False
-    return subprocess.run(["docker", "info"], capture_output=True, shell=False).returncode == 0  # nosec B603
+    return subprocess.run(  # nosec B603: absolute Docker executable; fixed argv
+        _docker_argv("info"), capture_output=True, shell=False
+    ).returncode == 0
 
 
 requires_docker = pytest.mark.skipif(not _docker_available(), reason="docker not available")
@@ -32,14 +53,14 @@ def timescale_dsn():
 
     name = f"whoop-test-db-{uuid.uuid4().hex[:8]}"
     # publish container 5432 on an ephemeral host port (-P picks a free one)
-    subprocess.run([  # nosec B603
-        "docker", "run", "-d", "--rm", "--name", name,
+    subprocess.run(  # nosec B603: absolute Docker executable and argv list
+        _docker_argv("run", "-d", "--rm", "--name", name,
         "-e", f"POSTGRES_DB={DB_NAME}", "-e", f"POSTGRES_USER={DB_USER}",
         "-e", f"POSTGRES_PASSWORD={DB_PASSWORD}", "-P", IMAGE,
-    ], check=True, capture_output=True, shell=False)
+        ), check=True, capture_output=True, shell=False)
     try:
         port = subprocess.run(  # nosec B603
-            ["docker", "port", name, "5432/tcp"], check=True, capture_output=True, text=True, shell=False
+            _docker_argv("port", name, "5432/tcp"), check=True, capture_output=True, text=True, shell=False
         ).stdout.strip().rsplit(":", 1)[1]
         dsn = f"postgresql://{DB_USER}:{DB_PASSWORD}@127.0.0.1:{port}/{DB_NAME}"
         # wait for readiness
@@ -59,7 +80,9 @@ def timescale_dsn():
             c.execute(fh.read())
         yield dsn
     finally:
-        subprocess.run(["docker", "rm", "-f", name], capture_output=True, shell=False)  # nosec B603
+        subprocess.run(  # nosec B603: absolute Docker executable, fixed command
+            _docker_argv("rm", "-f", name), capture_output=True, shell=False
+        )
 
 
 @pytest.fixture
