@@ -5,6 +5,8 @@ import math
 
 import zstandard
 
+from .archive import open_contained_archive
+
 from .analysis.units import (
     resp_rate_bpm,
     skin_temp_celsius,
@@ -279,10 +281,11 @@ def query_workouts(conn, device_id, start_date, end_date):
 from whoop_protocol import parse_frame
 
 
-def read_batch_frames(file_path):
+def read_batch_frames(file_path, *, raw_root):
     """Decompress a batch's .zst archive and parse each frame via whoop-protocol.
-    Returns [{seq, hex, type_name, crc_ok, fields, parsed}] in archived order."""
-    with open(file_path, "rb") as fh:
+    Returns [{seq, hex, type_name, crc_ok, fields, parsed}] in archived order.
+    ``raw_root`` is mandatory so no caller can bypass archive containment."""
+    with open_contained_archive(raw_root, file_path) as fh:
         raw = zstandard.ZstdDecompressor().decompress(fh.read())
     out = []
     for seq, line in enumerate(raw.decode().splitlines()):

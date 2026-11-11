@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import db, ingest, read, store
+from . import archive, db, ingest, read, store
 from .analysis import daily
 from .config import load_config
 
@@ -122,9 +122,12 @@ def healthz():
 @app.post("/v1/ingest", dependencies=[Depends(require_auth)])
 def ingest_batch(batch: IngestBatch):
     payload = batch.model_dump()
-    with psycopg.connect(cfg.db_dsn) as conn:
-        result = ingest.process_batch(conn, cfg, payload)
-        conn.commit()
+    try:
+        with psycopg.connect(cfg.db_dsn) as conn:
+            result = ingest.process_batch(conn, cfg, payload)
+            conn.commit()
+    except archive.InvalidArchivePath as exc:
+        raise HTTPException(status_code=400, detail="invalid archive identifier") from exc
     return result
 
 
@@ -355,4 +358,7 @@ def get_batch_frames(batch_id: str):
         ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="batch not found")
-    return read.read_batch_frames(row[0])
+    try:
+        return read.read_batch_frames(row[0], raw_root=cfg.raw_root)
+    except archive.InvalidArchivePath as exc:
+        raise HTTPException(status_code=400, detail="invalid archive path") from exc
