@@ -4,7 +4,7 @@ const path = require('node:path');
 const { test } = require('node:test');
 const vm = require('node:vm');
 
-const input = '"><img src=x onerror=alert(1)>&\'';
+const input = '"><img src=x onerror=alert(1)>&\\'';
 const escaped = '&quot;&gt;&lt;img src=x onerror=alert(1)&gt;&amp;&#39;';
 
 function loadDashboard(file, devices = []) {
@@ -33,17 +33,23 @@ function loadDashboard(file, devices = []) {
       createElement: () => element(Symbol())
     },
     fetch: async route => {
-      if (route === '/v1/devices') return { ok: true, json: async () => devices };
+      if (new URL(route, 'http://localhost/').pathname === '/v1/devices') {
+        return { ok: true, json: async () => devices };
+      }
       // Leave unrelated startup requests pending. These tests exercise rendering only.
       return new Promise(() => {});
     },
     localStorage: { getItem: () => 'test-key' },
+    URL,
     Option: class {
       constructor(text, value) { this.text = text; this.value = value; }
     },
     WebSocket: class {},
     location: { host: 'localhost' },
-    window: { addEventListener() {} },
+    window: {
+      location: { href: 'http://localhost/', origin: 'http://localhost' },
+      addEventListener() {}
+    },
     performance: { now: () => 1000 },
     setInterval() {},
   });
