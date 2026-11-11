@@ -25,12 +25,20 @@ def validate_component(value: str) -> None:
 
 
 def _relative_archive_path(root: str, file_path: str) -> tuple[Path, Path]:
-    base = Path(root).resolve()
+    # Older database rows can retain paths spelled through a symlinked root
+    # (for example, /tmp on macOS). Map that root prefix onto its canonical
+    # location, but keep the remaining components lexical so secure openat
+    # checks can still reject symlinked descendants.
+    configured_root = Path(os.path.abspath(os.fspath(root)))
+    base = configured_root.resolve()
     candidate = Path(os.path.abspath(os.fspath(file_path)))
     try:
-        relative = candidate.relative_to(base)
-    except ValueError as exc:
-        raise InvalidArchivePath("archive path is outside the configured root") from exc
+        relative = candidate.relative_to(configured_root)
+    except ValueError:
+        try:
+            relative = candidate.relative_to(base)
+        except ValueError as exc:
+            raise InvalidArchivePath("archive path is outside the configured root") from exc
     if not relative.parts:
         raise InvalidArchivePath("archive path is outside the configured root")
     return base, relative

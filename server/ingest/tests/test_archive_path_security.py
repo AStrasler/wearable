@@ -36,6 +36,24 @@ def test_rejects_stored_external_path_and_prefix_sibling(tmp_path):
             read_batch_frames(str(target), raw_root=str(root))
 
 
+def test_accepts_legacy_path_through_symlinked_root(tmp_path):
+    from app.archive import open_contained_archive
+
+    canonical_root = tmp_path / "canonical-raw"
+    configured_root = tmp_path / "raw-link"
+    result = write_raw_batch(str(canonical_root), "devA", "batch", "2026-05-23", [b"\xaa\x00"])
+    try:
+        configured_root.symlink_to(canonical_root, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unavailable: {exc}")
+
+    # Simulate a persisted path recorded before the configured root was resolved.
+    legacy_path = configured_root / "devA" / "2026-05-23" / "batch.zst"
+    assert contained_archive_path(str(configured_root), str(legacy_path)) == result["file_path"]
+    with open_contained_archive(str(configured_root), str(legacy_path)) as archive:
+        assert archive.read()
+
+
 def test_read_requires_archive_root(tmp_path):
     from app.read import read_batch_frames
 
