@@ -1,0 +1,16 @@
+server/ingest/tests/conftest.py
+  h_43bd93ed2f90ff 8,18-35,37,39-41,56-57,60,63,83-85
+server/ingest/tests/test_docker_security_contract.py
+  h_43bd93ed2f90ff 1-68
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f4fae529504d197ef36a45ac713caf415be2ea99",
+  "prompts": {},
+  "humans": {
+    "h_43bd93ed2f90ff": {
+      "author": "Aaron Strasler <Aaron.M.Strasler@outlook.com>"
+    }
+  }
+}
