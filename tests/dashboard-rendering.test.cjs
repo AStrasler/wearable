@@ -4,7 +4,7 @@ const path = require('node:path');
 const { test } = require('node:test');
 const vm = require('node:vm');
 
-const input = '"><img src=x onerror=alert(1)>&\\'';
+const input = '"><img src=x onerror=alert(1)>&\'';
 const escaped = '&quot;&gt;&lt;img src=x onerror=alert(1)&gt;&amp;&#39;';
 
 function loadDashboard(file, devices = []) {
@@ -87,6 +87,65 @@ test('ingest dashboard renders uploaded device IDs and event labels as literal t
   assert.ok(!batches.includes('<img'));
 });
 
+test('ingest sleep history escapes markup-shaped day values in attributes', () => {
+  const { context, element, run } = loadDashboard('server/ingest/app/static/app.js');
+  context.nights = [{
+    day: input,
+    total_sleep_min: 480,
+    efficiency: 0.9,
+    deep_min: 60,
+    rem_min: 90,
+    light_min: 240,
+    recovery: 75,
+    strain: 8
+  }];
+  run('renderSleepHistory(nights)');
+
+  const html = element('#sleep-body').innerHTML;
+  assert.ok(html.includes(`data-day="${escaped}"`));
+  assert.ok(!html.includes('<img'));
+});
+
+test('ingest exercise labels are escaped before HTML rendering', () => {
+  const { context, run } = loadDashboard('server/ingest/app/static/app.js');
+  context.exercise = { kind: input, duration_s: 600, strain: 4, zone_time_pct: {} };
+  const html = run('renderExerciseBout(exercise)');
+
+  assert.ok(html.includes(escaped));
+  assert.ok(!html.includes('<img'));
+});
+
+test('stage legend stores prototype-shaped keys in a null-prototype map', () => {
+  const { context, element, run } = loadDashboard('server/ingest/app/static/app.js');
+  context.segs = [
+    { stage: '__proto__', start: 0, end: 60 },
+    { stage: 'constructor', start: 0, end: 120 },
+    { stage: 'deep', start: 0, end: 60 }
+  ];
+  run(`{
+    const originalCreate = Object.create;
+    Object.create = function(proto) {
+      const map = originalCreate(proto);
+      window.capturedStageMap = map;
+      return map;
+    };
+    try {
+      renderStageLegend(document.querySelector('#stage-legend'), segs, null);
+    } finally {
+      Object.create = originalCreate;
+    }
+  }`);
+
+  const map = context.window.capturedStageMap;
+  const html = element('#stage-legend').innerHTML;
+  assert.equal(Object.getPrototypeOf(map), null);
+  assert.equal(map.__proto__, 1);
+  assert.equal(map.constructor, 2);
+  assert.ok(html.includes('deep 1m'));
+  assert.ok(!html.includes('__proto__'));
+  assert.ok(!html.includes('constructor'));
+});
+
 for (const [name, file, render, rawKey] of [
   ['live', 'dashboard/static/app.js', 'renderInspector(packet)', 'raw'],
   ['ingest', 'server/ingest/app/static/app.js', 'inspectFrame(packet, false)', 'hex']
@@ -133,3 +192,4 @@ for (const [name, file, render, rawKey] of [
     }
   });
 }
+
