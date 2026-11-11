@@ -2,7 +2,7 @@
 Integration tests skip automatically if Docker is unavailable."""
 import os
 import shutil
-import subprocess
+import subprocess  # nosec B404
 import time
 import uuid
 
@@ -17,7 +17,7 @@ DB_PASSWORD = "testpw"
 def _docker_available():
     if shutil.which("docker") is None:
         return False
-    return subprocess.run(["docker", "info"], capture_output=True).returncode == 0
+    return subprocess.run(["docker", "info"], capture_output=True, shell=False).returncode == 0  # nosec B603
 
 
 requires_docker = pytest.mark.skipif(not _docker_available(), reason="docker not available")
@@ -32,14 +32,14 @@ def timescale_dsn():
 
     name = f"whoop-test-db-{uuid.uuid4().hex[:8]}"
     # publish container 5432 on an ephemeral host port (-P picks a free one)
-    subprocess.run([
+    subprocess.run([  # nosec B603
         "docker", "run", "-d", "--rm", "--name", name,
         "-e", f"POSTGRES_DB={DB_NAME}", "-e", f"POSTGRES_USER={DB_USER}",
         "-e", f"POSTGRES_PASSWORD={DB_PASSWORD}", "-P", IMAGE,
-    ], check=True, capture_output=True)
+    ], check=True, capture_output=True, shell=False)
     try:
-        port = subprocess.run(
-            ["docker", "port", name, "5432/tcp"], check=True, capture_output=True, text=True
+        port = subprocess.run(  # nosec B603
+            ["docker", "port", name, "5432/tcp"], check=True, capture_output=True, text=True, shell=False
         ).stdout.strip().rsplit(":", 1)[1]
         dsn = f"postgresql://{DB_USER}:{DB_PASSWORD}@127.0.0.1:{port}/{DB_NAME}"
         # wait for readiness
@@ -59,7 +59,7 @@ def timescale_dsn():
             c.execute(fh.read())
         yield dsn
     finally:
-        subprocess.run(["docker", "rm", "-f", name], capture_output=True)
+        subprocess.run(["docker", "rm", "-f", name], capture_output=True, shell=False)  # nosec B603
 
 
 @pytest.fixture
