@@ -355,4 +355,8 @@ def get_batch_frames(batch_id: str):
         ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="batch not found")
-    return read.read_batch_frames(row[0])
+    archive_root = os.path.realpath(cfg.raw_root)
+    archive_file = os.path.realpath(row[0])
+    if os.path.commonpath((archive_root, archive_file)) != archive_root:
+        raise HTTPException(status_code=404, detail="batch archive not found")
+    return read.read_batch_frames(archive_file)
