@@ -33,17 +33,23 @@ function loadDashboard(file, devices = []) {
       createElement: () => element(Symbol())
     },
     fetch: async route => {
-      if (route === '/v1/devices') return { ok: true, json: async () => devices };
+      if (new URL(route, 'http://localhost/').pathname === '/v1/devices') {
+        return { ok: true, json: async () => devices };
+      }
       // Leave unrelated startup requests pending. These tests exercise rendering only.
       return new Promise(() => {});
     },
     localStorage: { getItem: () => 'test-key' },
+    URL,
     Option: class {
       constructor(text, value) { this.text = text; this.value = value; }
     },
     WebSocket: class {},
     location: { host: 'localhost' },
-    window: { addEventListener() {} },
+    window: {
+      location: { href: 'http://localhost/', origin: 'http://localhost' },
+      addEventListener() {}
+    },
     performance: { now: () => 1000 },
     setInterval() {},
   });
@@ -79,6 +85,90 @@ test('ingest dashboard renders uploaded device IDs and event labels as literal t
   assert.ok(batches.includes(`data-id="${escaped}"`));
   assert.ok(batches.includes('>2 pkt</span>'));
   assert.ok(!batches.includes('<img'));
+});
+
+test('ingest sleep history escapes markup-shaped day values in attributes', () => {
+  const { context, element, run } = loadDashboard('server/ingest/app/static/app.js');
+  context.nights = [{
+    day: input,
+    total_sleep_min: 480,
+    efficiency: 0.9,
+    deep_min: 60,
+    rem_min: 90,
+    light_min: 240,
+    recovery: 75,
+    strain: 8
+  }];
+  run('renderSleepHistory(nights)');
+
+  const html = element('#sleep-body').innerHTML;
+  assert.ok(html.includes(`data-day="${escaped}"`));
+  assert.ok(!html.includes('<img'));
+});
+
+test('ingest exercise labels are escaped before HTML rendering', () => {
+  const { context, run } = loadDashboard('server/ingest/app/static/app.js');
+  context.exercise = { kind: input, duration_s: 600, strain: 4, zone_time_pct: {} };
+  const html = run('renderExerciseBout(exercise)');
+
+  assert.ok(html.includes(escaped));
+  assert.ok(!html.includes('<img'));
+});
+
+test('stage legend stores prototype-shaped keys in a null-prototype map', () => {
+  const { context, element, run } = loadDashboard('server/ingest/app/static/app.js');
+  context.segs = [
+    { stage: '__proto__', start: 0, end: 60 },
+    { stage: 'constructor', start: 0, end: 120 },
+    { stage: input, start: 0, end: 60 },
+    { stage: 'deep', start: 0, end: 60 }
+  ];
+  run(`{
+    const originalCreate = Object.create;
+    Object.create = function(proto) {
+      const map = originalCreate(proto);
+      window.capturedStageMap = map;
+      return map;
+    };
+    try {
+      renderStageLegend(document.querySelector('#stage-legend'), segs, null);
+    } finally {
+      Object.create = originalCreate;
+    }
+  }`);
+
+  const map = context.window.capturedStageMap;
+  const html = element('#stage-legend').innerHTML;
+  assert.equal(Object.getPrototypeOf(map), null);
+  assert.equal(map.__proto__, 1);
+  assert.equal(map.constructor, 2);
+  assert.ok(html.includes('deep 1m'));
+  assert.ok(!html.includes('__proto__'));
+  assert.ok(!html.includes('constructor'));
+  assert.ok(!html.includes('<img'));
+  assert.ok(!html.includes(input));
+});
+
+test('live dashboard packet maps safely store prototype-shaped type names', () => {
+  const { element, run } = loadDashboard('dashboard/static/app.js');
+  run(`{
+    latest['__proto__'] = { type_name: '__proto__' };
+    counts['__proto__'] = 1;
+    latest.constructor = { type_name: 'constructor' };
+    counts.constructor = 2;
+    renderTabs();
+  }`);
+
+  const mapsAreSafe = run(`
+    Object.getPrototypeOf(latest) === null &&
+    Object.getPrototypeOf(counts) === null &&
+    latest['__proto__'].type_name === '__proto__' &&
+    counts['__proto__'] === 1 &&
+    latest.constructor.type_name === 'constructor' &&
+    counts.constructor === 2
+  `);
+  assert.equal(mapsAreSafe, true);
+  assert.ok(element('#type-tabs').innerHTML.includes('constructor'));
 });
 
 for (const [name, file, render, rawKey] of [
