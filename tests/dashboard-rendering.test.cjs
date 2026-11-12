@@ -120,6 +120,7 @@ test('stage legend stores prototype-shaped keys in a null-prototype map', () => 
   context.segs = [
     { stage: '__proto__', start: 0, end: 60 },
     { stage: 'constructor', start: 0, end: 120 },
+    { stage: input, start: 0, end: 60 },
     { stage: 'deep', start: 0, end: 60 }
   ];
   run(`{
@@ -144,6 +145,30 @@ test('stage legend stores prototype-shaped keys in a null-prototype map', () => 
   assert.ok(html.includes('deep 1m'));
   assert.ok(!html.includes('__proto__'));
   assert.ok(!html.includes('constructor'));
+  assert.ok(!html.includes('<img'));
+  assert.ok(!html.includes(input));
+});
+
+test('live dashboard packet maps safely store prototype-shaped type names', () => {
+  const { element, run } = loadDashboard('dashboard/static/app.js');
+  run(`{
+    latest['__proto__'] = { type_name: '__proto__' };
+    counts['__proto__'] = 1;
+    latest.constructor = { type_name: 'constructor' };
+    counts.constructor = 2;
+    renderTabs();
+  }`);
+
+  const mapsAreSafe = run(`
+    Object.getPrototypeOf(latest) === null &&
+    Object.getPrototypeOf(counts) === null &&
+    latest['__proto__'].type_name === '__proto__' &&
+    counts['__proto__'] === 1 &&
+    latest.constructor.type_name === 'constructor' &&
+    counts.constructor === 2
+  `);
+  assert.equal(mapsAreSafe, true);
+  assert.ok(element('#type-tabs').innerHTML.includes('constructor'));
 });
 
 for (const [name, file, render, rawKey] of [
