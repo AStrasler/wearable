@@ -278,7 +278,8 @@ def build_all():
 
     def emit(frame, collect_rt=False, collect_bio=False):
         out = parse_frame(frame)
-        assert out.get("ok"), f"synthetic frame failed to parse: {frame.hex()}"
+        if not out.get("ok"):
+            raise RuntimeError(f"synthetic frame failed to parse: {frame.hex()}")
         frames.append({"hex": frame.hex()})
         golden.append(out)
         if collect_rt:
@@ -351,9 +352,11 @@ def main():
     expected = {"REALTIME_DATA", "COMMAND_RESPONSE", "EVENT", "METADATA",
                 "CONSOLE_LOGS", "REALTIME_RAW_DATA", "HISTORICAL_DATA"}
     missing = expected - set(type_counts)
-    assert not missing, f"synthetic parity fixture missing packet types: {sorted(missing)}"
-    assert sum(1 for g in golden if g["type_name"] == "HISTORICAL_DATA") == 60, \
-        "BiometricStreamsParityTests requires exactly 60 V24 records"
+    if missing:
+        raise RuntimeError(f"synthetic parity fixture missing packet types: {sorted(missing)}")
+    historical_count = sum(1 for g in golden if g["type_name"] == "HISTORICAL_DATA")
+    if historical_count != 60:
+        raise RuntimeError("BiometricStreamsParityTests requires exactly 60 V24 records")
 
     with open(os.path.join(_OUT_DIR, "frames.json"), "w") as fh:
         json.dump(frames, fh, indent=0)
@@ -362,9 +365,12 @@ def main():
 
     # Stream parity over the realtime/event/battery frames.
     streams = extract_streams(realtime_parsed, _DEVICE_CLOCK_REF, _WALL_CLOCK_REF)
-    assert streams["hr"], "stream fixture produced no HR rows"
-    assert streams["events"], "stream fixture produced no EVENT rows"
-    assert streams["battery"], "stream fixture produced no battery rows"
+    if not streams["hr"]:
+        raise RuntimeError("stream fixture produced no HR rows")
+    if not streams["events"]:
+        raise RuntimeError("stream fixture produced no EVENT rows")
+    if not streams["battery"]:
+        raise RuntimeError("stream fixture produced no battery rows")
     with open(os.path.join(_OUT_DIR, "streams_golden.json"), "w") as fh:
         json.dump(streams, fh, indent=0)
 
@@ -380,7 +386,8 @@ def main():
             hist_frames.append({"hex": f.hex()})
             hist_parsed.append(pr)
     hstreams = extract_historical_streams(hist_parsed, _DEVICE_CLOCK_REF, _WALL_CLOCK_REF)
-    assert hstreams["hr"], "historical fixture produced no HR rows"
+    if not hstreams["hr"]:
+        raise RuntimeError("historical fixture produced no HR rows")
     with open(os.path.join(_OUT_DIR, "historical_frames.json"), "w") as fh:
         json.dump(hist_frames, fh)
     with open(os.path.join(_OUT_DIR, "historical_golden.json"), "w") as fh:
@@ -388,9 +395,12 @@ def main():
 
     # Biometric (type-47 V24) stream parity.
     bstreams = extract_historical_streams(biometric_parsed, _DEVICE_CLOCK_REF, _WALL_CLOCK_REF)
-    assert bstreams["hr"], "biometric fixture produced no HR rows"
-    assert bstreams["spo2"], "biometric fixture produced no SpO2 rows"
-    assert bstreams["gravity"], "biometric fixture produced no gravity rows"
+    if not bstreams["hr"]:
+        raise RuntimeError("biometric fixture produced no HR rows")
+    if not bstreams["spo2"]:
+        raise RuntimeError("biometric fixture produced no SpO2 rows")
+    if not bstreams["gravity"]:
+        raise RuntimeError("biometric fixture produced no gravity rows")
     with open(os.path.join(_OUT_DIR, "biometric_streams_golden.json"), "w") as fh:
         json.dump(bstreams, fh, indent=0)
 
