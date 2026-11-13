@@ -181,7 +181,8 @@ class WhoopClient:
         """Return a valid access token, refreshing if expired or missing."""
         if self._access_token is None or time.monotonic() >= self._token_expires_at:
             self._refresh()
-        assert self._access_token is not None
+        if self._access_token is None:
+            raise RuntimeError("token refresh did not provide an access token")
         return self._access_token
 
     # ------------------------------------------------------------------
@@ -242,8 +243,8 @@ class WhoopClient:
                 break
             if next_token in seen_tokens:
                 log.warning(
-                    "_paginate: next_token %r repeated on %s — stopping to avoid infinite loop",
-                    next_token, path,
+                    "_paginate: repeated pagination cursor on %s — stopping to avoid infinite loop",
+                    path,
                 )
                 break
             seen_tokens.add(next_token)
