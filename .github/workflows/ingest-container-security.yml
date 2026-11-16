@@ -1,0 +1,21 @@
+name: Ingest container non-root validation
+
+on:
+  pull_request:
+    paths:
+      - "server/ingest/Dockerfile"
+      - ".github/workflows/ingest-container-security.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-check-user:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Build ingest image
+        run: docker build --tag wearable-ingest:pr --file server/ingest/Dockerfile server
+      - name: Verify runtime user and writable database path
+        run: |
+          docker run --rm --entrypoint sh wearable-ingest:pr -c 'test "$(id -u)" = "1000" && test "$(id -g)" = "1000" && test -w /app/db'
