@@ -2,6 +2,8 @@ import json
 import os
 import sys
 
+import pytest
+
 sys.path.insert(0, os.path.dirname(__file__))
 import uploader
 
@@ -41,3 +43,26 @@ def test_chunk_batches():
     frames = [{"seq": i, "hex": "aa00"} for i in range(250)]
     batches = list(uploader.chunk(frames, size=100))
     assert [len(b) for b in batches] == [100, 100, 50]
+
+
+@pytest.mark.parametrize("url", [
+    "file:///etc/passwd",
+    "ftp://example.com/ingest",
+    "//example.com/ingest",
+    "http:///missing-host",
+    "https://user:password@example.com/ingest",
+    "https://example.com/ingest?token=secret",
+    "https://example.com/ingest#fragment",
+])
+def test_post_batch_rejects_non_service_urls_before_opening(url, monkeypatch):
+    def unexpected_open(*_args, **_kwargs):
+        raise AssertionError("unsupported URL reached urlopen")
+
+    monkeypatch.setattr(uploader.urllib.request, "urlopen", unexpected_open)
+    with pytest.raises(ValueError, match="ingest URL"):
+        uploader.post_batch(url, "bearer-secret", {})
+
+
+def test_validate_ingest_url_accepts_http_and_https():
+    assert uploader._validate_ingest_url("http://localhost:8770/") == "http://localhost:8770"
+    assert uploader._validate_ingest_url("https://ingest.example/v1") == "https://ingest.example/v1"

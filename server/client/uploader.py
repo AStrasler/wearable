@@ -22,6 +22,7 @@ import struct
 import uuid
 
 import urllib.request
+from urllib.parse import urlsplit
 
 from whoop_protocol import frame_from_payload
 
@@ -98,14 +99,35 @@ def chunk(items, size):
 
 
 def post_batch(url, token, batch):
+    url = _validate_ingest_url(url)
     req = urllib.request.Request(
-        url.rstrip("/") + "/v1/ingest",
+        url + "/v1/ingest",
         data=json.dumps(batch).encode(),
         headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=30) as resp:
         return json.loads(resp.read())
+
+
+def _validate_ingest_url(url):
+    """Accept only absolute HTTP(S) service URLs before sending the bearer token."""
+    try:
+        parsed = urlsplit(url)
+    except ValueError as exc:
+        raise ValueError("ingest URL must be a valid absolute HTTP(S) URL") from exc
+    if (
+        parsed.scheme.lower() not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError(
+            "ingest URL must use HTTP(S), include a host, and omit credentials, query, and fragment"
+        )
+    return url.rstrip("/")
 
 
 def main(argv=None):
@@ -116,6 +138,7 @@ def main(argv=None):
     ap.add_argument("--device", default="whoop4-dev")
     ap.add_argument("--batch-size", type=int, default=100)
     args = ap.parse_args(argv)
+    args.url = _validate_ingest_url(args.url)
 
     frames = load_frames(args.capture)
     clock_ref = derive_clock_ref(args.capture)

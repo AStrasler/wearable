@@ -4,6 +4,35 @@ from app import read, store
 from tests.conftest import requires_docker
 
 
+def test_sql_identifiers_quote_hostile_names():
+    rendered = read._sql_identifiers(["ts", 'name"; DROP TABLE devices; --']).as_string(None)
+
+    assert rendered == '"ts", "name""; DROP TABLE devices; --"'
+
+
+def test_query_stream_binds_user_values():
+    class Result:
+        def fetchall(self):
+            return []
+
+    class CaptureConnection:
+        def __init__(self):
+            self.calls = []
+
+        def execute(self, query, params):
+            self.calls.append((query.as_string(None), params))
+            return Result()
+
+    conn = CaptureConnection()
+    hostile_device_id = "x' OR 1=1 --"
+
+    assert read.query_stream(conn, "hr", hostile_device_id, 0, 1) == []
+    query, params = conn.calls[0]
+    assert 'FROM "hr_samples"' in query
+    assert "device_id = %s" in query
+    assert params[0] == hostile_device_id
+
+
 def _seed(dsn):
     with psycopg.connect(dsn) as conn:
         store.ensure_device(conn, "devA")

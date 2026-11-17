@@ -32,10 +32,7 @@ _buf = {"b": b"", "need": 0}
 
 
 def emit(obj):
-    try:
-        outq.put_nowait(obj)
-    except Exception:
-        pass
+    outq.put_nowait(obj)
 
 
 def cb_simple(char):
