@@ -27,6 +27,13 @@ from urllib.parse import urlsplit
 from whoop_protocol import frame_from_payload
 
 
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Never forward replay credentials to a redirected ingest endpoint."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 def _iter_records(path):
     with open(path) as fh:
         for line in fh:
@@ -106,7 +113,10 @@ def post_batch(url, token, batch):
         headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=30) as resp:
+    # The bearer token is scoped to the configured service URL. Do not let urllib
+    # forward it to a redirect target, even when the redirect stays on HTTP(S).
+    opener = urllib.request.build_opener(_NoRedirectHandler())
+    with opener.open(req, timeout=30) as resp:
         return json.loads(resp.read())
 
 
