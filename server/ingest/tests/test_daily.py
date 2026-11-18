@@ -8,6 +8,7 @@ import datetime as _dt
 import importlib
 
 import psycopg
+from psycopg import sql as pg_sql
 import pytest
 from fastapi.testclient import TestClient
 
@@ -357,9 +358,12 @@ def test_recompute_with_fewer_sessions_is_consistent(clean_db):
     with psycopg.connect(clean_db) as conn, conn.cursor() as cur:
         for tbl in ("hr_samples", "gravity_samples", "rr_intervals", "resp_samples"):
             cur.execute(
-                f"DELETE FROM {tbl} WHERE device_id=%s "
-                "AND ts >= to_timestamp(%s) AND ts < to_timestamp(%s)",
-                (DEVICE, b_start, b_end))
+                pg_sql.SQL(
+                    "DELETE FROM {} WHERE device_id=%s "
+                    "AND ts >= to_timestamp(%s) AND ts < to_timestamp(%s)"
+                ).format(pg_sql.Identifier(tbl)),
+                (DEVICE, b_start, b_end),
+            )
         conn.commit()
 
     with psycopg.connect(clean_db) as conn:

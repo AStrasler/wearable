@@ -1,4 +1,5 @@
 import psycopg
+from psycopg import sql as pg_sql
 import pytest
 from app import store
 from tests.conftest import requires_docker
@@ -91,5 +92,9 @@ def test_upsert_streams_backward_compat_no_biometric(clean_db):
                           "spo2": 0, "skin_temp": 0, "resp": 0, "gravity": 0}
         with conn.cursor() as cur:
             for table in ("spo2_samples", "skin_temp_samples", "resp_samples", "gravity_samples"):
-                cur.execute(f"SELECT count(*) FROM {table}")
+                cur.execute(
+                    pg_sql.SQL("SELECT count(*) FROM {}").format(
+                        pg_sql.Identifier(table)
+                    )
+                )
                 assert cur.fetchone()[0] == 0
