@@ -519,19 +519,17 @@ def load_computed_from_db(
         return result
 
     # Pull from daily_metrics table
-    # Column mapping: daily_metrics has hrv_rmssd, resting_hr, spo2_pct,
-    # skin_temp_c, resp_rate, recovery_score, day_strain, sleep_total_min,
-    # sleep_efficiency (as 0-100 float or 0-1; check schema).
+    # Keep metric names aligned with the daily_metrics schema in init.sql.
     _DM_COLS: dict[str, str] = {
-        "hrv":             "hrv_rmssd",
+        "hrv":             "avg_hrv",
         "resting_hr":      "resting_hr",
         "spo2":            "spo2_pct",
-        "skin_temp":       "skin_temp_c",
-        "resp":            "resp_rate",
-        "recovery":        "recovery_score",
-        "day_strain":      "day_strain",
-        "sleep_duration":  "sleep_total_min",
-        "sleep_efficiency": "sleep_efficiency",
+        "skin_temp":       "skin_temp_dev_c",
+        "resp":            "resp_rate_bpm",
+        "recovery":        "recovery",
+        "day_strain":      "strain",
+        "sleep_duration":  "total_sleep_min",
+        "sleep_efficiency": "efficiency",
     }
 
     cols_wanted = {
@@ -542,22 +540,25 @@ def load_computed_from_db(
     if not cols_wanted:
         return result
 
-    # Select the fixed allowlisted metric columns so neither identifiers nor
-    # values are interpolated into SQL. Only requested metrics are returned below.
+    # Fixed SQL identifiers avoid interpolating caller-controlled SQL. Use the
+    # cursor's returned column names below so result decoding cannot drift when
+    # the SELECT list is reordered.
     query = (
-        "SELECT day, hrv_rmssd, resting_hr, spo2_pct, skin_temp_c, resp_rate, "
-        "recovery_score, day_strain, sleep_total_min, sleep_efficiency "
+        "SELECT day, avg_hrv, resting_hr, spo2_pct, skin_temp_dev_c, resp_rate_bpm, "
+        "recovery, strain, total_sleep_min, efficiency "
         "FROM daily_metrics WHERE device_id = %s AND day = ANY(%s::date[])"
     )
 
     with conn.cursor() as cur:
         cur.execute(query, (device_id, list(nights)))
+        column_indexes = {
+            description.name: index
+            for index, description in enumerate(cur.description)
+        }
         for row in cur.fetchall():
-            row_date = row[0]
-            for i, metric in enumerate(_DM_COLS):
-                if metric not in cols_wanted:
-                    continue
-                val = row[i + 1]
+            row_date = row[column_indexes["day"]]
+            for metric, column in cols_wanted.items():
+                val = row[column_indexes[column]]
                 if val is None:
                     continue
                 try:

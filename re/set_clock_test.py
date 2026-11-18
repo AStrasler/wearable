@@ -11,7 +11,7 @@ import time
 
 sys.path.insert(0, "whoomp/scripts")
 from packet import WhoopPacket, PacketType, CommandNumber, EventNumber  # noqa: E402
-from packet_errors import is_malformed_packet_error
+from packet_errors import CallbackFailure
 from bleak import BleakClient, BleakScanner  # noqa: E402
 
 from device_config import DEVICE_UUID as ADDR
@@ -22,14 +22,14 @@ DATA = "61080005-8d6d-82b8-614a-1c8cb0f8dcc6"
 
 resp_q: asyncio.Queue = asyncio.Queue()
 events = []
+callback_failure = CallbackFailure()
 
 
 def cmd_from_cb(_, d):
     try:
         pkt = WhoopPacket.from_data(bytes(d)); resp_q.put_nowait((pkt.cmd, bytes(pkt.data)))
     except Exception as exc:
-        if not is_malformed_packet_error(exc):
-            raise
+        callback_failure.report(exc)
 
 
 def events_cb(_, d):
@@ -40,8 +40,7 @@ def events_cb(_, d):
             except ValueError: nm = f"#{pkt.cmd}"
             events.append((nm, bytes(d).hex())); print(f"    EVENT {pkt.cmd} {nm}", flush=True)
     except Exception as exc:
-        if not is_malformed_packet_error(exc):
-            raise
+        callback_failure.report(exc)
 
 
 async def send(c, cmd, payload=b"\x00", resp=False):
@@ -56,7 +55,7 @@ async def req(c, cmd, timeout=4.0):
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
-            rc, d = await asyncio.wait_for(resp_q.get(), timeout=deadline - time.time())
+            rc, d = await callback_failure.get(resp_q, timeout=deadline - time.time())
         except asyncio.TimeoutError:
             break
         if rc == cmd.value:
@@ -78,7 +77,7 @@ async def main():
         await c.start_notify(EVENTS, events_cb)
         await c.start_notify(DATA, lambda _, d: None)
         await send(c, CommandNumber.GET_BATTERY_LEVEL, b"\x00", resp=True)
-        await asyncio.sleep(1.5)
+        await callback_failure.sleep(1.5)
         print("(bonded)", flush=True)
 
         clk0 = await req(c, CommandNumber.GET_CLOCK)
@@ -89,7 +88,7 @@ async def main():
         print(f"\n>>> SET_CLOCK seconds={now} ({time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(now))}) subsec=0", flush=True)
         events.clear()
         await send(c, CommandNumber.SET_CLOCK, struct.pack("<II", now, 0), resp=True)
-        await asyncio.sleep(2.0)
+        await callback_failure.sleep(2.0)
         # drain any cmd response
         got = []
         while not resp_q.empty():
