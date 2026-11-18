@@ -64,6 +64,8 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
 
+from psycopg import sql as pg_sql
+
 from .stats import (
     BAResult,
     KappaResult,
@@ -542,25 +544,26 @@ def load_computed_from_db(
     if not cols_wanted:
         return result
 
-    select_cols = ", ".join(f"{col} AS {metric}" for metric, col in cols_wanted.items())
+    select_cols = pg_sql.SQL(", ").join(
+        pg_sql.SQL("{} AS {}").format(
+            pg_sql.Identifier(column), pg_sql.Identifier(metric)
+        )
+        for metric, column in cols_wanted.items()
+    )
+    query = pg_sql.SQL(
+        "SELECT day, {} FROM {} WHERE device_id = %s AND day = ANY(%s::date[])"
+    ).format(select_cols, pg_sql.Identifier("daily_metrics"))
 
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                f"SELECT day, {select_cols} FROM daily_metrics "
-                f"WHERE device_id = $1 AND day = ANY($2::date[])",
-                (device_id, list(nights)),
-            )
-            for row in cur.fetchall():
-                row_date = row[0]
-                for i, metric in enumerate(cols_wanted):
-                    val = row[i + 1]
-                    if val is not None:
-                        try:
-                            result[(row_date, metric)] = float(val)
-                        except (TypeError, ValueError):
-                            pass
-    except Exception:
-        pass  # Let callers handle DB errors; core logic remains pure
+    with conn.cursor() as cur:
+        cur.execute(query, (device_id, list(nights)))
+        for row in cur.fetchall():
+            row_date = row[0]
+            for i, metric in enumerate(cols_wanted):
+                val = row[i + 1]
+                if val is not None:
+                    try:
+                        result[(row_date, metric)] = float(val)
+                    except (TypeError, ValueError):
+                        continue
 
     return result

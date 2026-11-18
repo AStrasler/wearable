@@ -56,9 +56,12 @@ def cmd_auth() -> None:
     print(url)
     print()
     try:
-        webbrowser.open(url)
-    except Exception:
-        pass
+        opened = webbrowser.open(url)
+    except (OSError, webbrowser.Error) as exc:
+        print(f"Could not launch a browser ({exc}); copy the URL above.", file=sys.stderr)
+    else:
+        if not opened:
+            print("Could not launch a browser; copy the URL above.", file=sys.stderr)
 
     redirected = input("Paste the full redirected URL here: ").strip()
     # Extract the 'code' query param
