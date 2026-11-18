@@ -19,7 +19,6 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
-from psycopg import sql as pg_sql
 
 
 class TestLoadComputedFromDb:
@@ -28,7 +27,9 @@ class TestLoadComputedFromDb:
 
         night = date(2026, 11, 1)
         cursor = MagicMock()
-        cursor.fetchall.return_value = [(night, "52.5")]
+        cursor.fetchall.return_value = [
+            (night, "52.5", None, None, None, None, None, None, None, None)
+        ]
         conn = MagicMock()
         conn.cursor.return_value.__enter__.return_value = cursor
 
@@ -40,7 +41,8 @@ class TestLoadComputedFromDb:
         )
 
         statement, params = cursor.execute.call_args.args
-        assert isinstance(statement, pg_sql.Composable)
+        assert isinstance(statement, str)
+        assert "DROP TABLE" not in statement
         assert params == ("device-1", [night])
         assert result == {(night, "hrv"): 52.5}
 
