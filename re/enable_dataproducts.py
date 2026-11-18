@@ -13,6 +13,7 @@ import time
 
 sys.path.insert(0, "whoomp/scripts")
 from packet import WhoopPacket, PacketType, CommandNumber, EventNumber  # noqa: E402
+from packet_errors import is_malformed_packet_error
 from bleak import BleakClient, BleakScanner  # noqa: E402
 
 from device_config import DEVICE_UUID as ADDR
@@ -33,8 +34,9 @@ events = []
 def cmd_from_cb(_, d):
     try:
         pkt = WhoopPacket.from_data(bytes(d)); resp_q.put_nowait((pkt.cmd, bytes(pkt.data)))
-    except Exception:
-        pass
+    except Exception as exc:
+        if not is_malformed_packet_error(exc):
+            raise
 
 
 def events_cb(_, d):
@@ -44,8 +46,9 @@ def events_cb(_, d):
             try: nm = EventNumber(pkt.cmd).name
             except Exception: nm = f"#{pkt.cmd}"
             events.append(nm)
-    except Exception:
-        pass
+    except Exception as exc:
+        if not is_malformed_packet_error(exc):
+            raise
 
 
 def ff_payload(name, on):
@@ -112,8 +115,8 @@ async def main():
         print(f"  (write raised on reboot, expected: {e})", flush=True)
     try:
         await c.disconnect()
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"disconnect after reboot failed: {exc}", flush=True)
 
     print(">>> waiting 35s for reboot + re-advertise...", flush=True)
     await asyncio.sleep(35)

@@ -2,6 +2,7 @@
 import asyncio, struct, sys, collections
 sys.path.insert(0, "whoomp/scripts")
 from packet import WhoopPacket, PacketType, CommandNumber  # noqa
+from packet_errors import is_malformed_packet_error
 from bleak import BleakClient, BleakScanner  # noqa
 
 from device_config import DEVICE_UUID as ADDR
@@ -21,8 +22,9 @@ def handle(frame):
         except ValueError: tn = f"type{t}"
         types[tn] += 1
         sizes[tn].add(len(pkt) - 3)
-    except Exception:
-        pass
+    except Exception as exc:
+        if not is_malformed_packet_error(exc):
+            raise
 
 
 def cb(_, d):
@@ -60,7 +62,7 @@ async def main():
         await asyncio.sleep(10)
         for cmd in [CommandNumber.STOP_RAW_DATA, CommandNumber.TOGGLE_REALTIME_HR]:
             try: await send(c, cmd, b"\x00")
-            except Exception: pass
+            except Exception as exc: print(f"stop command {cmd.name} failed: {exc}", flush=True)
         print("TYPES:", dict(types), flush=True)
         print("SIZES:", {k: sorted(v) for k, v in sizes.items()}, flush=True)
 
