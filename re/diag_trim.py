@@ -7,6 +7,7 @@ rolling 14-day store + server-backed; user-approved this session)."""
 import asyncio, struct, sys, time
 sys.path.insert(0, "whoomp/scripts")
 from packet import WhoopPacket, PacketType, CommandNumber, MetadataType, crc8  # noqa
+from packet_errors import is_malformed_packet_error
 import zlib  # noqa
 from bleak import BleakClient, BleakScanner  # noqa
 
@@ -34,8 +35,9 @@ def cmd_cb(_, d):
         pkt = WhoopPacket.from_data(bytes(d))
         if pkt.cmd == CommandNumber.GET_DATA_RANGE.value:
             ranges.append(parse_range(pkt.data))
-    except Exception:
-        pass
+    except Exception as exc:
+        if not is_malformed_packet_error(exc):
+            raise
 
 
 def handle(frame):
@@ -51,8 +53,9 @@ def handle(frame):
                 unix47.append(struct.unpack_from("<I", pkt, 7)[0])  # data[4:8] = pkt[7:11]
         elif t == 49 and pkt[2] == MetadataType.HISTORY_END.value:
             meta_q.put_nowait(bytes(pkt[3:]))  # data
-    except Exception:
-        pass
+    except Exception as exc:
+        if not is_malformed_packet_error(exc):
+            raise
 
 
 def data_cb(_, d):

@@ -7,6 +7,7 @@ import asyncio, struct, sys, time
 from collections import Counter
 sys.path.insert(0, "whoomp/scripts")
 from packet import WhoopPacket, PacketType, CommandNumber  # noqa
+from packet_errors import is_malformed_packet_error
 from bleak import BleakClient, BleakScanner  # noqa
 
 from device_config import DEVICE_UUID as ADDR
@@ -28,8 +29,9 @@ def handle(frame):
         types[t] += 1
         if t == 43:
             sizes43[len(pkt) - 3] += 1
-    except Exception:
-        pass
+    except Exception as exc:
+        if not is_malformed_packet_error(exc):
+            raise
 
 
 def data_cb(_, d):
@@ -53,8 +55,9 @@ def cmd_cb(_, d):
         pkt = WhoopPacket.from_data(bytes(d))
         if pkt.cmd == CommandNumber.GET_LED_DRIVE.value:
             ledresp.append(pkt.data.hex())
-    except Exception:
-        pass
+    except Exception as exc:
+        if not is_malformed_packet_error(exc):
+            raise
 
 
 async def send(c, cmd, payload=b"\x00"):
