@@ -7,6 +7,7 @@ rolling 14-day store + server-backed; user-approved this session)."""
 import asyncio, struct, sys, time
 sys.path.insert(0, "whoomp/scripts")
 from packet import WhoopPacket, PacketType, CommandNumber, MetadataType, crc8  # noqa
+from packet_errors import CallbackFailure, is_malformed_packet_error
 import zlib  # noqa
 from bleak import BleakClient, BleakScanner  # noqa
 
@@ -22,6 +23,7 @@ n47 = 0
 unix47 = []
 histf = open(OUT, "wb")
 buf, need = b"", 0
+callback_failure = CallbackFailure()
 
 
 def parse_range(data):
@@ -34,8 +36,8 @@ def cmd_cb(_, d):
         pkt = WhoopPacket.from_data(bytes(d))
         if pkt.cmd == CommandNumber.GET_DATA_RANGE.value:
             ranges.append(parse_range(pkt.data))
-    except Exception:
-        pass
+    except Exception as exc:
+        callback_failure.report(exc)
 
 
 def handle(frame):
@@ -51,22 +53,29 @@ def handle(frame):
                 unix47.append(struct.unpack_from("<I", pkt, 7)[0])  # data[4:8] = pkt[7:11]
         elif t == 49 and pkt[2] == MetadataType.HISTORY_END.value:
             meta_q.put_nowait(bytes(pkt[3:]))  # data
-    except Exception:
-        pass
+    except Exception as exc:
+        if not is_malformed_packet_error(exc):
+            raise
 
 
 def data_cb(_, d):
     global buf, need
-    f = bytes(d)
-    if need == 0:
-        if f and f[0] == 0xAA and len(f) >= 3:
-            total = struct.unpack("<H", f[1:3])[0] + 4
-            if len(f) >= total: handle(f[:total])
-            else: buf, need = f, total
-    else:
-        buf += f
-        if len(buf) >= need:
-            handle(buf[:need]); buf, need = b"", 0
+    try:
+        f = bytes(d)
+        if need == 0:
+            if f and f[0] == 0xAA and len(f) >= 3:
+                total = struct.unpack("<H", f[1:3])[0] + 4
+                if len(f) >= total:
+                    handle(f[:total])
+                else:
+                    buf, need = f, total
+        else:
+            buf += f
+            if len(buf) >= need:
+                frame, buf, need = buf[:need], b"", 0
+                handle(frame)
+    except Exception as exc:
+        callback_failure.report(exc)
 
 
 def frame(cmd, payload):
@@ -87,8 +96,8 @@ async def main():
         print(f"connected {c.is_connected}  now={int(time.time())}", flush=True)
         await c.start_notify(CMD_FROM, cmd_cb)
         await c.start_notify(DATA, data_cb)
-        await send(c, CommandNumber.GET_BATTERY_LEVEL.value); await asyncio.sleep(1.5)
-        await send(c, CommandNumber.GET_DATA_RANGE.value); await asyncio.sleep(1.0)
+        await send(c, CommandNumber.GET_BATTERY_LEVEL.value); await callback_failure.sleep(1.5)
+        await send(c, CommandNumber.GET_DATA_RANGE.value); await callback_failure.sleep(1.0)
         r0 = ranges[-1] if ranges else None
         print(f"[range0] trim={r0[3] if r0 else '?'} write={r0[2] if r0 else '?'} count={r0[6] if r0 else '?'}", flush=True)
 
@@ -103,7 +112,7 @@ async def main():
         t0 = time.time()
         while time.time() - t0 < 30:
             try:
-                data = await asyncio.wait_for(meta_q.get(), timeout=3)
+                data = await callback_failure.get(meta_q, timeout=3)
             except asyncio.TimeoutError:
                 continue
             end_data = data[10:18]
@@ -111,8 +120,8 @@ async def main():
             acks += 1
         await send(c, CommandNumber.ABORT_HISTORICAL_TRANSMITS.value, b"\x00")
         await send(c, CommandNumber.EXIT_HIGH_FREQ_SYNC.value, b"\x00")
-        await asyncio.sleep(1)
-        await send(c, CommandNumber.GET_DATA_RANGE.value); await asyncio.sleep(1.0)
+        await callback_failure.sleep(1)
+        await send(c, CommandNumber.GET_DATA_RANGE.value); await callback_failure.sleep(1.0)
         r1 = ranges[-1] if len(ranges) > 1 else None
         print(f"[range1] trim={r1[3] if r1 else '?'} write={r1[2] if r1 else '?'} count={r1[6] if r1 else '?'}", flush=True)
         print(f"\n  acks sent={acks}  type47 records={n47}", flush=True)

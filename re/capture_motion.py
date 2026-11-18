@@ -10,6 +10,7 @@ import time
 
 sys.path.insert(0, "whoomp/scripts")
 from packet import WhoopPacket, PacketType, CommandNumber  # noqa: E402
+from packet_errors import CallbackFailure, is_malformed_packet_error
 from bleak import BleakClient, BleakScanner  # noqa: E402
 
 from device_config import DEVICE_UUID as ADDR
@@ -22,6 +23,7 @@ out = open("motion_capture.jsonl", "w", buffering=1)
 buf, need = b"", 0
 phase = "init"
 counts = {}
+callback_failure = CallbackFailure()
 
 
 def cur_phase():
@@ -37,31 +39,38 @@ def handle_frame(frame):
         length = struct.unpack("<H", frame[1:3])[0]
         pkt = frame[4:length]
         t, seq, cmd, data = pkt[0], pkt[1], pkt[2], pkt[3:]
-        if t == PacketType.REALTIME_RAW_DATA.value:
-            counts[phase] = counts.get(phase, 0) + 1
-            out.write(json.dumps({
-                "phase": phase, "wall": time.time(), "cmd": cmd,
-                "datalen": len(data), "data_hex": data.hex(),
-            }) + "\n")
-    except Exception:
-        pass
+    except Exception as exc:
+        if is_malformed_packet_error(exc):
+            return
+        raise
+    if t == PacketType.REALTIME_RAW_DATA.value:
+        counts[phase] = counts.get(phase, 0) + 1
+        out.write(json.dumps({
+            "phase": phase, "wall": time.time(), "cmd": cmd,
+            "datalen": len(data), "data_hex": data.hex(),
+        }) + "\n")
 
 
 def data_cb(_, d):
     global buf, need
-    f = bytes(d)
-    if need == 0:
-        if f and f[0] == 0xAA and len(f) >= 3:
-            total = struct.unpack("<H", f[1:3])[0] + 4
-            if len(f) >= total:
-                handle_frame(f[:total])
+    try:
+        f = bytes(d)
+        if need == 0:
+            if f and f[0] == 0xAA and len(f) >= 3:
+                total = struct.unpack("<H", f[1:3])[0] + 4
+                if len(f) >= total:
+                    handle_frame(f[:total])
+                else:
+                    buf, need = f, total
             else:
-                buf, need = f, total
-    else:
-        buf += f
-        if len(buf) >= need:
-            handle_frame(buf[:need])
-            buf, need = b"", 0
+                return
+        else:
+            buf += f
+            if len(buf) >= need:
+                frame, buf, need = buf[:need], b"", 0
+                handle_frame(frame)
+    except Exception as exc:
+        callback_failure.report(exc)
 
 
 async def send(client, cmd, payload=b"\x00"):
@@ -79,7 +88,7 @@ async def main():
         await client.start_notify(CMD_FROM, lambda _, d: None)
         await client.start_notify(DATA, data_cb)
         await send(client, CommandNumber.GET_BATTERY_LEVEL)  # bond
-        await asyncio.sleep(1)
+        await callback_failure.sleep(1)
         # enable raw stream
         await send(client, CommandNumber.ENABLE_OPTICAL_DATA, b"\x01")
         await send(client, CommandNumber.TOGGLE_IMU_MODE, b"\x01")
@@ -93,7 +102,7 @@ async def main():
                 last = phase
             if phase == "quit":
                 break
-            await asyncio.sleep(0.4)
+            await callback_failure.sleep(0.4)
         await send(client, CommandNumber.STOP_RAW_DATA, b"\x00")
         print(f"DONE. packets/phase: {counts}", flush=True)
 

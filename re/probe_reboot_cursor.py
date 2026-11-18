@@ -8,6 +8,7 @@ import asyncio, struct, sys, time
 sys.path.insert(0, "whoomp/scripts")
 sys.path.insert(0, "re")
 from packet import WhoopPacket, PacketType, CommandNumber  # noqa
+from packet_errors import is_malformed_packet_error
 from bleak import BleakClient, BleakScanner  # noqa
 from device_config import DEVICE_UUID as ADDR  # noqa
 
@@ -23,8 +24,9 @@ def cmd_cb(_, d):
         if pkt.cmd == CommandNumber.GET_DATA_RANGE.value:
             body = pkt.data[3:]
             datarange.append([struct.unpack_from("<I", body, i)[0] for i in range(0, len(body) - 3, 4)])
-    except Exception:
-        pass
+    except Exception as exc:
+        if not is_malformed_packet_error(exc):
+            raise
 
 
 async def send(c, cmd, payload=b"\x00", resp=True):
@@ -54,9 +56,9 @@ async def main():
     print(f"BEFORE reboot: W={W0} U={U0} T={T0}")
     print("-> REBOOT_STRAP(29); waiting for re-advertise...")
     try: await send(c, REBOOT_STRAP, b"\x00", resp=False)
-    except Exception: pass
+    except Exception as exc: print(f"reboot write raised (link may drop): {exc}", flush=True)
     try: await c.disconnect()
-    except Exception: pass
+    except Exception as exc: print(f"disconnect after reboot failed: {exc}", flush=True)
 
     c2 = None
     for attempt in range(8):
@@ -80,7 +82,7 @@ async def main():
         print(f"\n❌ U persisted across reboot ({U0} -> {U1}). Reboot is not a recovery path. "
               f"Gap data remains in flash but unreachable via the offload (forward-only from a persistent U).")
     try: await c2.disconnect()
-    except Exception: pass
+    except Exception as exc: print(f"disconnect after probe failed: {exc}", flush=True)
     print("\nDONE (no trim/destructive ops).")
 
 

@@ -15,9 +15,90 @@ from __future__ import annotations
 
 import math
 from datetime import date
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
+
+
+class TestLoadComputedFromDb:
+    def test_binds_values_and_ignores_unapproved_metric_names(self):
+        from app.analysis.validation.report import load_computed_from_db
+
+        night = date(2026, 11, 1)
+        cursor = MagicMock()
+        selected_columns = [
+            "day", "avg_hrv", "resting_hr", "spo2_pct", "skin_temp_dev_c",
+            "resp_rate_bpm", "recovery", "strain", "total_sleep_min", "efficiency",
+        ]
+        cursor.description = [MagicMock(name=column) for column in selected_columns]
+        for description, column in zip(cursor.description, selected_columns):
+            description.name = column
+        cursor.fetchall.return_value = [
+            (night, "52.5", None, None, None, None, None, None, None, None)
+        ]
+        conn = MagicMock()
+        conn.cursor.return_value.__enter__.return_value = cursor
+
+        result = load_computed_from_db(
+            conn,
+            "device-1",
+            [night],
+            metrics=["hrv", "hrv; DROP TABLE daily_metrics"],
+        )
+
+        statement, params = cursor.execute.call_args.args
+        assert isinstance(statement, str)
+        assert "DROP TABLE" not in statement
+        for column in selected_columns:
+            assert column in statement
+        assert params == ("device-1", [night])
+        assert result == {(night, "hrv"): 52.5}
+
+    def test_daily_metric_mapping_matches_schema_and_decodes_by_column_name(self):
+        from app.analysis.validation.report import load_computed_from_db
+
+        night = date(2026, 11, 1)
+        columns = [
+            "day", "avg_hrv", "resting_hr", "spo2_pct", "skin_temp_dev_c",
+            "resp_rate_bpm", "recovery", "strain", "total_sleep_min", "efficiency",
+        ]
+        cursor = MagicMock()
+        cursor.description = []
+        for name in columns:
+            item = MagicMock()
+            item.name = name
+            cursor.description.append(item)
+        cursor.fetchall.return_value = [
+            (night, 55.0, 58, 97.0, 0.1, 15.0, 72.0, 8.1, 420.0, 88.0)
+        ]
+        conn = MagicMock()
+        conn.cursor.return_value.__enter__.return_value = cursor
+
+        result = load_computed_from_db(conn, "device-1", [night])
+
+        assert result == {
+            (night, "hrv"): 55.0,
+            (night, "resting_hr"): 58.0,
+            (night, "spo2"): 97.0,
+            (night, "skin_temp"): 0.1,
+            (night, "resp"): 15.0,
+            (night, "recovery"): 72.0,
+            (night, "day_strain"): 8.1,
+            (night, "sleep_duration"): 420.0,
+            (night, "sleep_efficiency"): 88.0,
+        }
+
+    def test_database_errors_are_not_reported_as_empty_results(self):
+        from app.analysis.validation.report import load_computed_from_db
+
+        conn = MagicMock()
+        conn.cursor.return_value.__enter__.return_value.execute.side_effect = RuntimeError(
+            "database unavailable"
+        )
+
+        with pytest.raises(RuntimeError, match="database unavailable"):
+            load_computed_from_db(conn, "device-1", [date(2026, 11, 1)])
 
 # ---------------------------------------------------------------------------
 # 1. Stats — hand-computed reference values

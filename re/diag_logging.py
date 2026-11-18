@@ -9,6 +9,7 @@ import asyncio, struct, sys, time
 from collections import Counter
 sys.path.insert(0, "whoomp/scripts")
 from packet import WhoopPacket, PacketType, CommandNumber, crc8  # noqa
+from packet_errors import is_malformed_packet_error
 import zlib  # noqa
 from bleak import BleakClient, BleakScanner  # noqa
 
@@ -36,8 +37,9 @@ def cmd_cb(_, d):
         pkt = WhoopPacket.from_data(bytes(d))
         if pkt.cmd == CommandNumber.GET_DATA_RANGE.value:
             datarange.append(parse_range(pkt.data))
-    except Exception:
-        pass
+    except Exception as exc:
+        if not is_malformed_packet_error(exc):
+            raise
 
 
 def handle(frame):
@@ -48,8 +50,9 @@ def handle(frame):
             data = pkt[3:]
             if len(data) >= 8:
                 t47_unix.append(struct.unpack_from("<I", data, 4)[0])
-    except Exception:
-        pass
+    except Exception as exc:
+        if not is_malformed_packet_error(exc):
+            raise
 
 
 def data_cb(_, d):

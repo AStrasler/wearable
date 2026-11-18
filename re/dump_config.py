@@ -22,6 +22,7 @@ import time
 
 sys.path.insert(0, "whoomp/scripts")
 from packet import WhoopPacket, PacketType, CommandNumber  # noqa: E402
+from packet_errors import CallbackFailure
 from bleak import BleakClient, BleakScanner  # noqa: E402
 
 from device_config import DEVICE_UUID as ADDR
@@ -33,6 +34,7 @@ DATA = "61080005-8d6d-82b8-614a-1c8cb0f8dcc6"
 LOG = open("re/config_dump.jsonl", "a", buffering=1)
 resp_q: asyncio.Queue = asyncio.Queue()   # (channel, resp_cmd, data_bytes, raw_bytes)
 data43 = 0
+callback_failure = CallbackFailure()
 
 
 def ascii_render(b: bytes) -> str:
@@ -44,8 +46,9 @@ def cmd_from_cb(_, d):
     try:
         pkt = WhoopPacket.from_data(raw)
         resp_q.put_nowait(("cmd_from", pkt.cmd, bytes(pkt.data), raw))
-    except Exception:
-        resp_q.put_nowait(("cmd_from", None, b"", raw))
+    except Exception as exc:
+        if callback_failure.report(exc):
+            resp_q.put_nowait(("cmd_from", None, b"", raw))
 
 
 def events_cb(_, d):
@@ -53,8 +56,8 @@ def events_cb(_, d):
     try:
         pkt = WhoopPacket.from_data(raw)
         resp_q.put_nowait(("events", pkt.cmd, bytes(pkt.data), raw))
-    except Exception:
-        pass
+    except Exception as exc:
+        callback_failure.report(exc)
 
 
 def data_cb(_, d):
@@ -75,7 +78,7 @@ async def probe(client, cmd, payload, label, wait=1.2):
     while not resp_q.empty():
         resp_q.get_nowait()
     await send(client, cmd, payload)
-    await asyncio.sleep(wait)
+    await callback_failure.sleep(wait)
     got = []
     while not resp_q.empty():
         got.append(resp_q.get_nowait())
@@ -110,7 +113,7 @@ async def main():
         await client.start_notify(DATA, data_cb)
         # bond via one confirmed write
         await send(client, CommandNumber.GET_BATTERY_LEVEL, b"\x00", resp=True)
-        await asyncio.sleep(1.5)
+        await callback_failure.sleep(1.5)
         print("(bonded)", flush=True)
 
         # ---- EXPERIMENT A: device-config key-exchange ----
