@@ -5,7 +5,7 @@ import asyncio, struct, sys, time
 from collections import Counter
 sys.path.insert(0, "whoomp/scripts")
 from packet import WhoopPacket, PacketType, CommandNumber  # noqa
-from packet_errors import is_malformed_packet_error
+from packet_errors import CallbackFailure, is_malformed_packet_error
 from bleak import BleakClient, BleakScanner  # noqa
 
 from device_config import DEVICE_UUID as ADDR
@@ -16,6 +16,7 @@ DATA = "61080005-8d6d-82b8-614a-1c8cb0f8dcc6"
 _buf = {"b": b"", "need": 0}
 seen = Counter()       # (type, datalen, leadhex) -> count
 window = Counter()
+callback_failure = CallbackFailure()
 
 
 def on_frame(frame):
@@ -33,16 +34,22 @@ def on_frame(frame):
 
 
 def cb_data(_, d):
-    f = bytes(d)
-    if _buf["need"] == 0:
-        if f and f[0] == 0xAA and len(f) >= 3:
-            total = struct.unpack("<H", f[1:3])[0] + 4
-            if len(f) >= total: on_frame(f[:total])
-            else: _buf["b"], _buf["need"] = f, total
-    else:
-        _buf["b"] += f
-        if len(_buf["b"]) >= _buf["need"]:
-            on_frame(_buf["b"][:_buf["need"]]); _buf["b"], _buf["need"] = b"", 0
+    try:
+        f = bytes(d)
+        if _buf["need"] == 0:
+            if f and f[0] == 0xAA and len(f) >= 3:
+                total = struct.unpack("<H", f[1:3])[0] + 4
+                if len(f) >= total:
+                    on_frame(f[:total])
+                else:
+                    _buf["b"], _buf["need"] = f, total
+        else:
+            _buf["b"] += f
+            if len(_buf["b"]) >= _buf["need"]:
+                frame, _buf["b"], _buf["need"] = _buf["b"][:_buf["need"]], b"", 0
+                on_frame(frame)
+    except Exception as exc:
+        callback_failure.report(exc)
 
 
 async def send(c, name, payload=b"\x00"):
@@ -58,7 +65,7 @@ async def main():
         await c.start_notify(CMD_FROM, lambda _, d: None)
         await c.start_notify(EVENTS, lambda _, d: None)
         await c.start_notify(DATA, cb_data)
-        await send(c, "GET_BATTERY_LEVEL"); await asyncio.sleep(1)  # bond
+        await send(c, "GET_BATTERY_LEVEL"); await callback_failure.sleep(1)  # bond
         # baseline: start raw IMU so we know normal shapes
         steps = [
             ("BASELINE start_raw", [("ENABLE_OPTICAL_DATA", b"\x01"), ("TOGGLE_IMU_MODE", b"\x01"), ("START_RAW_DATA", b"\x01")]),
@@ -76,8 +83,8 @@ async def main():
             for name, pl in cmds:
                 try: await send(c, name, pl)
                 except Exception as e: print(f"  ! {name}: {e}", flush=True)
-                await asyncio.sleep(0.3)
-            await asyncio.sleep(4)
+                await callback_failure.sleep(0.3)
+            await callback_failure.sleep(4)
             shapes = ", ".join(f"{k[0]}/len{k[1]}/{k[2]}×{v}" for k, v in window.most_common(6))
             print(f"[{label}] -> {shapes or 'no packets'}", flush=True)
         print("\n=== ALL distinct shapes seen (type/datalen/lead6hex × count) ===", flush=True)
