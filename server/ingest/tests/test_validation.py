@@ -15,9 +15,45 @@ from __future__ import annotations
 
 import math
 from datetime import date
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
+from psycopg import sql as pg_sql
+
+
+class TestLoadComputedFromDb:
+    def test_binds_values_and_ignores_unapproved_metric_names(self):
+        from app.analysis.validation.report import load_computed_from_db
+
+        night = date(2026, 11, 1)
+        cursor = MagicMock()
+        cursor.fetchall.return_value = [(night, "52.5")]
+        conn = MagicMock()
+        conn.cursor.return_value.__enter__.return_value = cursor
+
+        result = load_computed_from_db(
+            conn,
+            "device-1",
+            [night],
+            metrics=["hrv", "hrv; DROP TABLE daily_metrics"],
+        )
+
+        statement, params = cursor.execute.call_args.args
+        assert isinstance(statement, pg_sql.Composable)
+        assert params == ("device-1", [night])
+        assert result == {(night, "hrv"): 52.5}
+
+    def test_database_errors_are_not_reported_as_empty_results(self):
+        from app.analysis.validation.report import load_computed_from_db
+
+        conn = MagicMock()
+        conn.cursor.return_value.__enter__.return_value.execute.side_effect = RuntimeError(
+            "database unavailable"
+        )
+
+        with pytest.raises(RuntimeError, match="database unavailable"):
+            load_computed_from_db(conn, "device-1", [date(2026, 11, 1)])
 
 # ---------------------------------------------------------------------------
 # 1. Stats — hand-computed reference values
