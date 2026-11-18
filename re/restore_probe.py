@@ -13,6 +13,7 @@ from collections import Counter
 
 sys.path.insert(0, "whoomp/scripts")
 from packet import WhoopPacket, PacketType, CommandNumber, crc8  # noqa: E402
+from packet_errors import is_malformed_packet_error
 import zlib  # noqa: E402
 from bleak import BleakClient, BleakScanner  # noqa: E402
 
@@ -36,8 +37,9 @@ def handle(frame):
             raw_sizes[len(pkt)] += 1   # full inner packet length (incl type/ver/cmd)
         elif t == 43:
             live_sizes[len(data)] += 1
-    except Exception:
-        pass
+    except Exception as exc:
+        if not is_malformed_packet_error(exc):
+            raise
 
 
 def data_cb(_, d):
@@ -62,8 +64,9 @@ def cmd_cb(_, d):
         pkt = WhoopPacket.from_data(raw)
         if pkt.cmd == CommandNumber.GET_RESEARCH_PACKET.value:
             res132.append(pkt.data.hex())
-    except Exception:
-        pass
+    except Exception as exc:
+        if not is_malformed_packet_error(exc):
+            raise
 
 
 def frame(cmd_num, payload):
