@@ -10,6 +10,7 @@ import asyncio, struct, sys, time
 from collections import Counter
 sys.path.insert(0, "whoomp/scripts")
 from packet import WhoopPacket, PacketType, CommandNumber, crc8  # noqa
+from packet_errors import is_malformed_packet_error
 import zlib  # noqa
 from bleak import BleakClient, BleakScanner  # noqa
 
@@ -36,8 +37,9 @@ def cmd_cb(_, d):
             body = pkt.data[3:]
             datarange.append([struct.unpack_from("<I", body, i)[0] for i in range(0, len(body) - 3, 4)])
         resp_q.put_nowait((pkt.cmd, bytes(pkt.data)))
-    except Exception:
-        pass
+    except Exception as exc:
+        if not is_malformed_packet_error(exc):
+            raise
 
 
 def handle(frame):
@@ -116,8 +118,8 @@ async def main():
         print(f"  (reboot write raised, expected: {e})", flush=True)
     try:
         await c.disconnect()
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"disconnect after reboot failed: {exc}", flush=True)
 
     print(">>> waiting 40s for reboot + re-advertise...", flush=True)
     await asyncio.sleep(40)
