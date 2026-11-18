@@ -4,6 +4,7 @@ FastAPI serialises them)."""
 import math
 
 import zstandard
+from psycopg import sql as pg_sql
 
 from .archive import open_contained_archive
 
@@ -48,6 +49,11 @@ _DOWNSAMPLE = {
     "resp": {"raw": 1},
     "gravity": {"x": None, "y": None, "z": None},
 }
+
+
+def _sql_identifiers(names):
+    """Compose a comma-separated list of safely quoted SQL identifiers."""
+    return pg_sql.SQL(", ").join(pg_sql.Identifier(name) for name in names)
 
 
 def list_devices(conn):
@@ -98,10 +104,12 @@ def query_stream(conn, kind, device_id, start, end, limit=5000, max_points=None)
         # nominal [start,end] — the dashboard's "all" range is a giant sentinel
         # (from=0&to=2e9), and using it would collapse hours of data into one bucket.
         total, span = conn.execute(
-            f"SELECT count(*), "
-            "COALESCE(extract(epoch FROM max(ts)) - extract(epoch FROM min(ts)), 0) "
-            f"FROM {table} "
-            "WHERE device_id = %s AND ts >= to_timestamp(%s) AND ts <= to_timestamp(%s)",
+            pg_sql.SQL(
+                "SELECT count(*), "
+                "COALESCE(extract(epoch FROM max(ts)) - extract(epoch FROM min(ts)), 0) "
+                "FROM {} "
+                "WHERE device_id = %s AND ts >= to_timestamp(%s) AND ts <= to_timestamp(%s)"
+            ).format(pg_sql.Identifier(table)),
             (device_id, start, end),
         ).fetchone()
         if total > max_points:
@@ -110,10 +118,14 @@ def query_stream(conn, kind, device_id, start, end, limit=5000, max_points=None)
                 max_points, limit, span)
 
     cols = ["ts"] + value_cols
-    sql = (f"SELECT {', '.join(cols)} FROM {table} "
-           f"WHERE device_id = %s AND ts >= to_timestamp(%s) AND ts <= to_timestamp(%s) "
-           f"ORDER BY ts LIMIT %s")
-    rows = conn.execute(sql, (device_id, start, end, limit)).fetchall()
+    query = pg_sql.SQL(
+        "SELECT {} FROM {} "
+        "WHERE device_id = %s AND ts >= to_timestamp(%s) AND ts <= to_timestamp(%s) "
+        "ORDER BY ts LIMIT %s"
+    ).format(_sql_identifiers(cols), pg_sql.Identifier(table))
+    rows = conn.execute(  # nosec B608; nosemgrep -- identifiers use psycopg.sql.Identifier; values stay bound.
+        query, (device_id, start, end, limit)
+    ).fetchall()  # nosec B608 -- identifiers use psycopg.sql.Identifier; values stay bound.
     out = [dict(zip(cols, r)) for r in rows]
     return _augment_units(kind, out)
 
@@ -132,15 +144,20 @@ def _query_stream_downsampled(conn, kind, table, value_cols, device_id,
     # boolean and must never reach avg()). Non-averaged value cols are dropped from the
     # downsampled view — acceptable, and battery is fetched without max_points anyway.
     avg_cols = [c for c in value_cols if c in rounding]
-    avg_exprs = ", ".join(f"avg({c}) AS {c}" for c in avg_cols)
+    avg_exprs = pg_sql.SQL(", ").join(
+        pg_sql.SQL("avg({}) AS {}").format(pg_sql.Identifier(c), pg_sql.Identifier(c))
+        for c in avg_cols
+    )
     cols = ["ts"] + avg_cols
-    sql = (
-        f"SELECT time_bucket(make_interval(secs => %s), ts) AS ts, {avg_exprs} "
-        f"FROM {table} "
+    query = pg_sql.SQL(
+        "SELECT time_bucket(make_interval(secs => %s), ts) AS ts, {} "
+        "FROM {} "
         "WHERE device_id = %s AND ts >= to_timestamp(%s) AND ts <= to_timestamp(%s) "
         "GROUP BY 1 ORDER BY 1 LIMIT %s"
-    )
-    rows = conn.execute(sql, (width, device_id, start, end, limit)).fetchall()
+    ).format(avg_exprs, pg_sql.Identifier(table))
+    rows = conn.execute(  # nosec B608; nosemgrep -- identifiers use psycopg.sql.Identifier; values stay bound.
+        query, (width, device_id, start, end, limit)
+    ).fetchall()  # nosec B608 -- identifiers use psycopg.sql.Identifier; values stay bound.
     out = []
     for r in rows:
         d = dict(zip(cols, r))
@@ -196,8 +213,10 @@ def counts(conn, device_id, start, end):
     out = {}
     for kind, (table, _value_cols) in _STREAMS.items():
         out[kind] = conn.execute(
-            f"SELECT count(*) FROM {table} "
-            "WHERE device_id = %s AND ts >= to_timestamp(%s) AND ts <= to_timestamp(%s)",
+            pg_sql.SQL(
+                "SELECT count(*) FROM {} "
+                "WHERE device_id = %s AND ts >= to_timestamp(%s) AND ts <= to_timestamp(%s)"
+            ).format(pg_sql.Identifier(table)),
             (device_id, start, end),
         ).fetchone()[0]
     out["batches"] = conn.execute(
@@ -216,7 +235,9 @@ _PROFILE_COLS = ["device_id", "height_cm", "weight_kg", "age", "sex", "updated_a
 def query_profile(conn, device_id: str) -> dict | None:
     """Return the profile row for ``device_id``, or ``None`` if none exists."""
     row = conn.execute(
-        f"SELECT {', '.join(_PROFILE_COLS)} FROM profile WHERE device_id = %s",
+        pg_sql.SQL("SELECT {} FROM profile WHERE device_id = %s").format(
+            _sql_identifiers(_PROFILE_COLS)
+        ),
         (device_id,),
     ).fetchone()
     if row is None:
@@ -236,8 +257,10 @@ def query_daily(conn, device_id, start_date, end_date):
     """daily_metrics rows for a device over the inclusive [start_date, end_date]
     DATE range. start_date/end_date are datetime.date (or YYYY-MM-DD strings)."""
     rows = conn.execute(
-        f"SELECT {', '.join(_DAILY_COLS)} FROM daily_metrics "
-        "WHERE device_id = %s AND day >= %s AND day <= %s ORDER BY day",
+        pg_sql.SQL(
+            "SELECT {} FROM daily_metrics "
+            "WHERE device_id = %s AND day >= %s AND day <= %s ORDER BY day"
+        ).format(_sql_identifiers(_DAILY_COLS)),
         (device_id, start_date, end_date),
     ).fetchall()
     return [dict(zip(_DAILY_COLS, r)) for r in rows]
@@ -249,8 +272,10 @@ def query_sleep(conn, device_id, day):
     returned parsed (JSONB → list). Timestamps are tz-aware datetimes (ISO on the wire)."""
     cols = ["device_id", "start_ts", "end_ts", "efficiency", "resting_hr", "avg_hrv", "stages"]
     rows = conn.execute(
-        f"SELECT {', '.join(cols)} FROM sleep_sessions "
-        "WHERE device_id = %s AND (end_ts AT TIME ZONE 'UTC')::date = %s ORDER BY start_ts",
+        pg_sql.SQL(
+            "SELECT {} FROM sleep_sessions "
+            "WHERE device_id = %s AND (end_ts AT TIME ZONE 'UTC')::date = %s ORDER BY start_ts"
+        ).format(_sql_identifiers(cols)),
         (device_id, day),
     ).fetchall()
     return [dict(zip(cols, r)) for r in rows]
@@ -268,11 +293,13 @@ def query_workouts(conn, device_id, start_date, end_date):
     [start_date, end_date] (inclusive). start_date/end_date are datetime.date
     (or YYYY-MM-DD strings). Returns all columns including calories."""
     rows = conn.execute(
-        f"SELECT {', '.join(_WORKOUT_COLS)} FROM exercise_sessions "
-        "WHERE device_id = %s "
-        "AND (start_ts AT TIME ZONE 'UTC')::date >= %s "
-        "AND (start_ts AT TIME ZONE 'UTC')::date <= %s "
-        "ORDER BY start_ts",
+        pg_sql.SQL(
+            "SELECT {} FROM exercise_sessions "
+            "WHERE device_id = %s "
+            "AND (start_ts AT TIME ZONE 'UTC')::date >= %s "
+            "AND (start_ts AT TIME ZONE 'UTC')::date <= %s "
+            "ORDER BY start_ts"
+        ).format(_sql_identifiers(_WORKOUT_COLS)),
         (device_id, start_date, end_date),
     ).fetchall()
     return [dict(zip(_WORKOUT_COLS, r)) for r in rows]
