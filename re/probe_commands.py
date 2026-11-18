@@ -4,6 +4,7 @@ Also listen for events (TEMPERATURE_LEVEL etc.). NON-destructive commands only.
 import asyncio, struct, sys, json, time
 sys.path.insert(0, "whoomp/scripts")
 from packet import WhoopPacket, PacketType, CommandNumber, EventNumber  # noqa
+from packet_errors import is_malformed_packet_error
 from bleak import BleakClient, BleakScanner  # noqa
 
 from device_config import DEVICE_UUID as ADDR
@@ -49,8 +50,9 @@ def event_cb(_, d):
             except ValueError: en = f"event{pkt.cmd}"
             events_seen[en] = events_seen.get(en, 0) + 1
             out.write(json.dumps({"chan": "events", "event": en, "data_hex": pkt.data.hex()}) + "\n")
-    except Exception:
-        pass
+    except Exception as exc:
+        if not is_malformed_packet_error(exc):
+            raise
 
 
 async def send(client, cmdname, payload=b"\x00"):

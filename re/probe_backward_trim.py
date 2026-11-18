@@ -14,6 +14,7 @@ import asyncio, struct, sys, time
 sys.path.insert(0, "whoomp/scripts")
 sys.path.insert(0, "re")
 from packet import WhoopPacket, PacketType, CommandNumber  # noqa
+from packet_errors import is_malformed_packet_error
 from bleak import BleakClient, BleakScanner  # noqa
 from device_config import DEVICE_UUID as ADDR  # noqa
 
@@ -34,16 +35,16 @@ def cmd_cb(_, d):
         if pkt.cmd == CommandNumber.GET_DATA_RANGE.value:
             body = pkt.data[3:]
             datarange.append([struct.unpack_from("<I", body, i)[0] for i in range(0, len(body) - 3, 4)])
-    except Exception:
-        pass
+    except Exception as exc:
+        if not is_malformed_packet_error(exc):
+            raise
 
 
 def handle(frame):
     if len(frame) > 4 and frame[4] == 47:
         data = frame[4:][3:]
         if len(data) >= 49:
-            try: t47.append(struct.unpack_from("<I", data, 4)[0])
-            except Exception: pass
+            t47.append(struct.unpack_from("<I", data, 4)[0])
 
 
 def data_cb(_, d):

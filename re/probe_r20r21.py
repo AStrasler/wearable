@@ -9,6 +9,7 @@ import time
 
 sys.path.insert(0, "whoomp/scripts")
 from packet import WhoopPacket, PacketType, CommandNumber, crc8  # noqa: E402
+from packet_errors import is_malformed_packet_error
 import zlib  # noqa: E402
 from bleak import BleakClient, BleakScanner  # noqa: E402
 
@@ -26,8 +27,9 @@ def cmd_from_cb(_, d):
     try:
         pkt = WhoopPacket.from_data(bytes(d))
         resp_q.put_nowait((pkt.cmd, bytes(pkt.data)))
-    except Exception:
-        pass
+    except Exception as exc:
+        if not is_malformed_packet_error(exc):
+            raise
 
 
 def events_cb(_, d):
@@ -36,8 +38,9 @@ def events_cb(_, d):
         pkt = WhoopPacket.from_data(raw)
         if pkt.type == PacketType.EVENT:
             events.append((pkt.cmd, raw.hex()))
-    except Exception:
-        pass
+    except Exception as exc:
+        if not is_malformed_packet_error(exc):
+            raise
 
 
 def frame(cmd_num, payload):
