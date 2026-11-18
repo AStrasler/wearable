@@ -16,6 +16,7 @@ import time
 
 sys.path.insert(0, "whoomp/scripts")
 from packet import WhoopPacket, PacketType, CommandNumber  # noqa: E402
+from packet_errors import is_malformed_packet_error
 from bleak import BleakClient, BleakScanner  # noqa: E402
 
 from device_config import DEVICE_UUID as ADDR
@@ -38,8 +39,9 @@ def cmd_from_cb(_, d):
     try:
         pkt = WhoopPacket.from_data(raw)
         resp_q.put_nowait((pkt.cmd, bytes(pkt.data)))
-    except Exception:
-        pass
+    except Exception as exc:
+        if not is_malformed_packet_error(exc):
+            raise
 
 
 def data_cb(_, d):

@@ -75,8 +75,8 @@ async def main():
         # Stop realtime
         try:
             await client.write_gatt_char(CMD_CHAR, build_command(0x04), response=False)
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"stop realtime failed: {exc}", flush=True)
 
         print("\n=== notification counts ===")
         for label, n in sorted(counts.items()):

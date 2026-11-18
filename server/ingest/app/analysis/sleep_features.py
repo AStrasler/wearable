@@ -440,8 +440,9 @@ def hrv_from_rr(rr_ms: Sequence[float]) -> dict[str, float]:
             t = nk.hrv_time(peaks, sampling_rate=1000)
             out["rmssd"] = _df_get(t, "HRV_RMSSD")
             out["sdnn"] = _df_get(t, "HRV_SDNN")
-        except Exception:
-            pass
+        except (ValueError, IndexError, FloatingPointError, ZeroDivisionError):
+            # Degenerate RR windows have no time-domain estimate; keep NaN values.
+            out["rmssd"] = out["sdnn"] = nan
         # Frequency features (LF/HF) need a longer, denser record: the HF band is
         # 0.15–0.4 Hz, so we need at least ~2 min of beats for a meaningful
         # spectrum (spec §4: "where enough beats"). Below that, skip the (~10×
@@ -453,8 +454,9 @@ def hrv_from_rr(rr_ms: Sequence[float]) -> dict[str, float]:
                 out["lf"] = _df_get(f, "HRV_LF")
                 out["hf"] = _df_get(f, "HRV_HF")
                 out["lfhf"] = _df_get(f, "HRV_LFHF")
-            except Exception:
-                pass
+            except (ValueError, IndexError, FloatingPointError, ZeroDivisionError):
+                # NeuroKit cannot produce a spectrum for this window; keep NaN values.
+                out["lf"] = out["hf"] = out["lfhf"] = nan
     return out
 
 

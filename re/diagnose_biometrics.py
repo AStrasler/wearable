@@ -9,6 +9,7 @@ from collections import Counter
 sys.path.insert(0, "whoomp/scripts")
 sys.path.insert(0, "re")
 from packet import WhoopPacket, PacketType, CommandNumber, crc8  # noqa
+from packet_errors import is_malformed_packet_error
 import zlib  # noqa
 from bleak import BleakClient, BleakScanner  # noqa
 from device_config import DEVICE_UUID as ADDR  # noqa
@@ -33,8 +34,9 @@ def cmd_cb(_, d):
             body = pkt.data[3:]
             datarange.append([struct.unpack_from("<I", body, i)[0] for i in range(0, len(body)-3, 4)])
         resp_q.put_nowait((pkt.cmd, bytes(pkt.data)))
-    except Exception:
-        pass
+    except Exception as exc:
+        if not is_malformed_packet_error(exc):
+            raise
 
 
 def handle(frame):
@@ -45,14 +47,11 @@ def handle(frame):
         pkt = frame[4:]            # [type,seq,cmd,data...]
         data = pkt[3:]
         if len(data) >= 49:
-            try:
-                unix = struct.unpack_from("<I", data, 4)[0]
-                hr = data[14]
-                skin = data[48]
-                gx, gy, gz = (struct.unpack_from("<f", data, o)[0] for o in (33, 37, 41))
-                t47.append((unix, hr, skin, (gx*gx+gy*gy+gz*gz)**0.5))
-            except Exception:
-                pass
+            unix = struct.unpack_from("<I", data, 4)[0]
+            hr = data[14]
+            skin = data[48]
+            gx, gy, gz = (struct.unpack_from("<f", data, o)[0] for o in (33, 37, 41))
+            t47.append((unix, hr, skin, (gx*gx+gy*gy+gz*gz)**0.5))
 
 
 def data_cb(_, d):

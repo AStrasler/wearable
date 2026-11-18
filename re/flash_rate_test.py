@@ -14,6 +14,7 @@ import time
 
 sys.path.insert(0, "whoomp/scripts")
 from packet import WhoopPacket, PacketType, CommandNumber  # noqa: E402
+from packet_errors import CallbackFailure
 from bleak import BleakClient, BleakScanner  # noqa: E402
 
 from device_config import DEVICE_UUID as ADDR
@@ -25,14 +26,15 @@ WIN = int(sys.argv[1]) if len(sys.argv) > 1 else 120
 
 resp_q: asyncio.Queue = asyncio.Queue()
 raw43 = 0
+callback_failure = CallbackFailure()
 
 
 def cmd_from_cb(_, d):
     try:
         pkt = WhoopPacket.from_data(bytes(d))
         resp_q.put_nowait((pkt.cmd, bytes(pkt.data)))
-    except Exception:
-        pass
+    except Exception as exc:
+        callback_failure.report(exc)
 
 
 def data_cb(_, d):
@@ -54,7 +56,7 @@ async def req(c, cmd, payload=b"\x00", timeout=4.0):
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
-            rc, d = await asyncio.wait_for(resp_q.get(), timeout=deadline - time.time())
+            rc, d = await callback_failure.get(resp_q, timeout=deadline - time.time())
         except asyncio.TimeoutError:
             break
         if rc == cmd.value:
@@ -79,7 +81,7 @@ async def connect():
     await c.start_notify(EVENTS, lambda _, d: None)
     await c.start_notify(DATA, data_cb)
     await send(c, CommandNumber.GET_BATTERY_LEVEL, b"\x00", resp=True)
-    await asyncio.sleep(1.5)
+    await callback_failure.sleep(1.5)
     return c
 
 
@@ -104,14 +106,14 @@ async def main():
     a0 = await snap(c, "t0 connected")
     raw43 = 0
     print(f"  ... staying connected {WIN}s (counting type-43) ...", flush=True)
-    await asyncio.sleep(WIN)
+    await callback_failure.sleep(WIN)
     connected_43 = raw43
     a1 = await snap(c, "t1 connected")
     print(f"  type-43 frames while connected: {connected_43} (~{connected_43/WIN:.1f}/s)", flush=True)
     await c.disconnect()
 
     print(f"\n--- disconnected; waiting {WIN}s (NO client) ---", flush=True)
-    await asyncio.sleep(WIN)
+    await callback_failure.sleep(WIN)
 
     c2 = await connect()
     if c2 is None:

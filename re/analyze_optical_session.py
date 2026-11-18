@@ -70,8 +70,8 @@ def main():
             r = json.loads(line)
             if r.get("datalen") == 1917:
                 p17[r["phase"]] += 1
-        except Exception:
-            pass
+        except (json.JSONDecodeError, AttributeError, KeyError, TypeError):
+            continue
     print("IMU (1917) packets/phase:   ", dict(p17))
 
     for ph, recs in phases.items():

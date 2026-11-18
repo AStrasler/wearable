@@ -11,6 +11,7 @@ import sys
 
 sys.path.insert(0, "whoomp/scripts")
 from packet import WhoopPacket, PacketType, CommandNumber  # noqa: E402
+from packet_errors import is_malformed_packet_error
 from bleak import BleakClient, BleakScanner  # noqa: E402
 
 from device_config import DEVICE_UUID as ADDR
@@ -33,8 +34,9 @@ def data_cb(_, d):
 def resp_cb(_, d):
     try:
         resp_q.put_nowait(WhoopPacket.from_data(bytes(d)))
-    except Exception:
-        pass
+    except Exception as exc:
+        if not is_malformed_packet_error(exc):
+            raise
 
 
 async def send(client, cmd, payload, resp=True):
@@ -90,8 +92,8 @@ async def main():
         print(f"  (write raised, expected on reboot: {e})", flush=True)
     try:
         await c.disconnect()
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"disconnect after reboot failed: {exc}", flush=True)
 
     print(">>> waiting 30s for the strap to reboot + re-advertise...", flush=True)
     await asyncio.sleep(30)
@@ -105,8 +107,8 @@ async def main():
     await get_data_range(c2)
     try:
         await c2.disconnect()
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"disconnect after observation failed: {exc}", flush=True)
 
     print("\n=== RESULT ===", flush=True)
     if n == 0:

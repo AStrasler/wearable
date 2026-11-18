@@ -4,6 +4,7 @@
 import asyncio, json, struct, sys, time
 sys.path.insert(0, "whoomp/scripts")
 from packet import WhoopPacket, PacketType, CommandNumber  # noqa
+from packet_errors import CallbackFailure, is_malformed_packet_error
 from bleak import BleakClient, BleakScanner  # noqa
 
 from device_config import DEVICE_UUID as ADDR
@@ -14,6 +15,7 @@ PHASE = "phase.txt"
 out = open("optical_capture.jsonl", "w", buffering=1)
 buf, need = b"", 0
 counts = {}
+callback_failure = CallbackFailure()
 
 
 def cur():
@@ -30,21 +32,29 @@ def handle(frame, phase):
             counts[(phase, len(data))] = counts.get((phase, len(data)), 0) + 1
             out.write(json.dumps({"phase": phase, "datalen": len(data),
                                   "data_hex": data.hex(), "wall": time.time()}) + "\n")
-    except Exception:
-        pass
+    except Exception as exc:
+        if not is_malformed_packet_error(exc):
+            raise
 
 
 def cb(_, d):
     global buf, need
-    f = bytes(d); ph = cur()
-    if need == 0:
-        if f and f[0] == 0xAA and len(f) >= 3:
-            total = struct.unpack("<H", f[1:3])[0] + 4
-            if len(f) >= total: handle(f[:total], ph)
-            else: buf, need = f, total
-    else:
-        buf += f
-        if len(buf) >= need: handle(buf[:need], ph); buf, need = b"", 0
+    try:
+        f = bytes(d); ph = cur()
+        if need == 0:
+            if f and f[0] == 0xAA and len(f) >= 3:
+                total = struct.unpack("<H", f[1:3])[0] + 4
+                if len(f) >= total:
+                    handle(f[:total], ph)
+                else:
+                    buf, need = f, total
+        else:
+            buf += f
+            if len(buf) >= need:
+                frame, buf, need = buf[:need], b"", 0
+                handle(frame, ph)
+    except Exception as exc:
+        callback_failure.report(exc)
 
 
 async def send(c, name, p=b"\x01"):
@@ -59,7 +69,7 @@ async def main():
         await c.start_notify(CMD_FROM, lambda _, d: None)
         await c.start_notify(DATA, cb)
         await send(c, "GET_BATTERY_LEVEL")  # bond
-        await asyncio.sleep(1)
+        await callback_failure.sleep(1)
         await send(c, "ENABLE_OPTICAL_DATA"); await send(c, "TOGGLE_IMU_MODE"); await send(c, "START_RAW_DATA")
         print("raw+optical streaming, watching phase.txt", flush=True)
         last = None; tick = 0
@@ -71,9 +81,11 @@ async def main():
             if ph == "quit": break
             tick += 1
             if tick % 20 == 0:  # re-arm raw stream every ~8s in case it paused
-                try: await send(c, "START_RAW_DATA")
-                except Exception: pass
-            await asyncio.sleep(0.4)
+                try:
+                    await send(c, "START_RAW_DATA")
+                except Exception as exc:
+                    print(f"re-arm raw stream failed: {exc}", flush=True)
+            await callback_failure.sleep(0.4)
         print("DONE", counts, flush=True)
 
 

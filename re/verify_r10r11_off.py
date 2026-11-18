@@ -21,10 +21,7 @@ def handle(fr):
         counts[fr[4]] += 1
         if fr[4] == 47 and len(fr) >= 15:
             # type-47 V24: unix at data[4:8]; data = pkt after [type,seq,cmd] = fr[7:]; unix=fr[11:15]
-            try:
-                t47_unix.append(struct.unpack_from("<I", fr, 11)[0])
-            except Exception:
-                pass
+            t47_unix.append(struct.unpack_from("<I", fr, 11)[0])
 
 
 def data_cb(_, d):

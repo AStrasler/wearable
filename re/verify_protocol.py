@@ -5,6 +5,7 @@ import time
 
 sys.path.insert(0, "whoomp/scripts")
 from packet import WhoopPacket, PacketType, CommandNumber  # noqa: E402
+from packet_errors import CallbackFailure
 from bleak import BleakClient, BleakScanner  # noqa: E402
 
 from device_config import DEVICE_UUID as ADDR
@@ -15,6 +16,7 @@ DATA = "61080005-8d6d-82b8-614a-1c8cb0f8dcc6"
 
 t0 = time.time()
 resp_q = asyncio.Queue()
+callback_failure = CallbackFailure()
 
 
 def on_cmd(_, data):
@@ -22,8 +24,8 @@ def on_cmd(_, data):
         pkt = WhoopPacket.from_data(data)
         resp_q.put_nowait(pkt)
         print(f"  [{time.time()-t0:5.1f}s] RESP: {pkt}")
-    except Exception as e:
-        print(f"  cmd parse err: {e} raw={bytes(data).hex()}")
+    except Exception as exc:
+        callback_failure.report(exc)
 
 
 def on_data(_, data):
@@ -31,16 +33,16 @@ def on_data(_, data):
         pkt = WhoopPacket.from_data(data)
         if pkt.type == PacketType.REALTIME_DATA:
             print(f"  [{time.time()-t0:5.1f}s] {pkt}")
-    except Exception as e:
-        print(f"  data parse err: {e} raw={bytes(data).hex()[:40]}")
+    except Exception as exc:
+        callback_failure.report(exc)
 
 
 def on_event(_, data):
     try:
         pkt = WhoopPacket.from_data(data)
         print(f"  [{time.time()-t0:5.1f}s] EVENT: {pkt}")
-    except Exception:
-        pass
+    except Exception as exc:
+        callback_failure.report(exc)
 
 
 async def send(client, cmd, payload=b"\x00"):
@@ -59,15 +61,15 @@ async def main():
         await client.start_notify(EVENTS, on_event)
         await client.start_notify(DATA, on_data)
 
-        await send(client, CommandNumber.GET_BATTERY_LEVEL); await asyncio.sleep(1.5)
-        await send(client, CommandNumber.REPORT_VERSION_INFO); await asyncio.sleep(1.5)
-        await send(client, CommandNumber.GET_CLOCK); await asyncio.sleep(1.5)
+        await send(client, CommandNumber.GET_BATTERY_LEVEL); await callback_failure.sleep(1.5)
+        await send(client, CommandNumber.REPORT_VERSION_INFO); await callback_failure.sleep(1.5)
+        await send(client, CommandNumber.GET_CLOCK); await callback_failure.sleep(1.5)
 
         print("\n--- toggling realtime HR for 6s ---")
         await send(client, CommandNumber.TOGGLE_REALTIME_HR, b"\x01")
-        await asyncio.sleep(6)
+        await callback_failure.sleep(6)
         await send(client, CommandNumber.TOGGLE_REALTIME_HR, b"\x00")
-        await asyncio.sleep(1)
+        await callback_failure.sleep(1)
         print("\nDone.")
 
 
