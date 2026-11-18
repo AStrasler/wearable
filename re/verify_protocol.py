@@ -5,6 +5,7 @@ import time
 
 sys.path.insert(0, "whoomp/scripts")
 from packet import WhoopPacket, PacketType, CommandNumber  # noqa: E402
+from packet_errors import is_malformed_packet_error
 from bleak import BleakClient, BleakScanner  # noqa: E402
 
 from device_config import DEVICE_UUID as ADDR
@@ -39,8 +40,9 @@ def on_event(_, data):
     try:
         pkt = WhoopPacket.from_data(data)
         print(f"  [{time.time()-t0:5.1f}s] EVENT: {pkt}")
-    except Exception:
-        pass
+    except Exception as exc:
+        if not is_malformed_packet_error(exc):
+            raise
 
 
 async def send(client, cmd, payload=b"\x00"):
