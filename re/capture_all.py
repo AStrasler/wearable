@@ -114,8 +114,8 @@ async def main():
         for c in [CommandNumber.STOP_RAW_DATA, CommandNumber.TOGGLE_IMU_MODE]:
             try:
                 await send(client, c, b"\x00")
-            except Exception:
-                pass
+            except Exception as exc:
+                print(f"    {c.name} stop failed: {exc}", flush=True)
 
         phase = "historical"
         print("\n=== historical offload ===", flush=True)

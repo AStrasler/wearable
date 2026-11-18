@@ -4,6 +4,7 @@
 import asyncio, json, struct, sys, time
 sys.path.insert(0, "whoomp/scripts")
 from packet import WhoopPacket, PacketType, CommandNumber  # noqa
+from packet_errors import is_malformed_packet_error
 from bleak import BleakClient, BleakScanner  # noqa
 
 from device_config import DEVICE_UUID as ADDR
@@ -30,8 +31,9 @@ def handle(frame, phase):
             counts[(phase, len(data))] = counts.get((phase, len(data)), 0) + 1
             out.write(json.dumps({"phase": phase, "datalen": len(data),
                                   "data_hex": data.hex(), "wall": time.time()}) + "\n")
-    except Exception:
-        pass
+    except Exception as exc:
+        if not is_malformed_packet_error(exc):
+            raise
 
 
 def cb(_, d):
@@ -71,8 +73,10 @@ async def main():
             if ph == "quit": break
             tick += 1
             if tick % 20 == 0:  # re-arm raw stream every ~8s in case it paused
-                try: await send(c, "START_RAW_DATA")
-                except Exception: pass
+                try:
+                    await send(c, "START_RAW_DATA")
+                except Exception as exc:
+                    print(f"re-arm raw stream failed: {exc}", flush=True)
             await asyncio.sleep(0.4)
         print("DONE", counts, flush=True)
 

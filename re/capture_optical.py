@@ -5,6 +5,7 @@ import asyncio, struct, sys, time
 from collections import Counter
 sys.path.insert(0, "whoomp/scripts")
 from packet import WhoopPacket, PacketType, CommandNumber  # noqa
+from packet_errors import is_malformed_packet_error
 from bleak import BleakClient, BleakScanner  # noqa
 
 from device_config import DEVICE_UUID as ADDR
@@ -26,8 +27,9 @@ def on_frame(frame):
         except ValueError: tn = f"t{t}"
         key = (tn, len(data), data[:6].hex())
         seen[key] += 1; window[key] += 1
-    except Exception:
-        pass
+    except Exception as exc:
+        if not is_malformed_packet_error(exc):
+            raise
 
 
 def cb_data(_, d):

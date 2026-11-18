@@ -10,6 +10,7 @@ import time
 
 sys.path.insert(0, "whoomp/scripts")
 from packet import WhoopPacket, PacketType, CommandNumber  # noqa: E402
+from packet_errors import is_malformed_packet_error
 from bleak import BleakClient, BleakScanner  # noqa: E402
 
 from device_config import DEVICE_UUID as ADDR
@@ -37,14 +38,16 @@ def handle_frame(frame):
         length = struct.unpack("<H", frame[1:3])[0]
         pkt = frame[4:length]
         t, seq, cmd, data = pkt[0], pkt[1], pkt[2], pkt[3:]
-        if t == PacketType.REALTIME_RAW_DATA.value:
-            counts[phase] = counts.get(phase, 0) + 1
-            out.write(json.dumps({
-                "phase": phase, "wall": time.time(), "cmd": cmd,
-                "datalen": len(data), "data_hex": data.hex(),
-            }) + "\n")
-    except Exception:
-        pass
+    except Exception as exc:
+        if is_malformed_packet_error(exc):
+            return
+        raise
+    if t == PacketType.REALTIME_RAW_DATA.value:
+        counts[phase] = counts.get(phase, 0) + 1
+        out.write(json.dumps({
+            "phase": phase, "wall": time.time(), "cmd": cmd,
+            "datalen": len(data), "data_hex": data.hex(),
+        }) + "\n")
 
 
 def data_cb(_, d):
