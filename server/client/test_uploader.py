@@ -11,6 +11,30 @@ sys.path.insert(0, os.path.dirname(__file__))
 import uploader
 
 
+class _QuietHandler(BaseHTTPRequestHandler):
+    def log_message(self, *_args):
+        pass
+
+
+@pytest.fixture
+def start_http_server():
+    servers = []
+
+    def start(handler):
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        servers.append((server, thread))
+        return server
+
+    yield start
+
+    for server, thread in reversed(servers):
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=1)
+
+
 def test_load_frames_full_hex(tmp_path):
     p = tmp_path / "cap.jsonl"
     p.write_text(json.dumps({"type": "REALTIME_DATA", "seq": 2,
@@ -56,6 +80,8 @@ def test_chunk_batches():
     "https://user:password@example.com/ingest",
     "https://example.com/ingest?token=secret",
     "https://example.com/ingest#fragment",
+    "https://example.com/ingest?",
+    "https://example.com/ingest#",
 ])
 def test_post_batch_rejects_non_service_urls_before_opening(url, monkeypatch):
     def unexpected_build_opener(*_args, **_kwargs):
@@ -71,10 +97,10 @@ def test_validate_ingest_url_accepts_http_and_https():
     assert uploader._validate_ingest_url("https://ingest.example/v1") == "https://ingest.example/v1"
 
 
-def test_post_batch_sends_to_configured_service():
+def test_post_batch_sends_to_configured_service(start_http_server):
     received = []
 
-    class Handler(BaseHTTPRequestHandler):
+    class Handler(_QuietHandler):
         def do_POST(self):
             body = self.rfile.read(int(self.headers["Content-Length"]))
             received.append((self.path, self.headers.get("Authorization"), json.loads(body)))
@@ -84,27 +110,17 @@ def test_post_batch_sends_to_configured_service():
             self.end_headers()
             self.wfile.write(response)
 
-        def log_message(self, *_args):
-            pass
-
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
-        result = uploader.post_batch(f"http://127.0.0.1:{server.server_port}", "token", {"x": 1})
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=1)
+    server = start_http_server(Handler)
+    result = uploader.post_batch(f"http://127.0.0.1:{server.server_port}", "token", {"x": 1})
 
     assert result == {"batch_id": "accepted"}
     assert received == [("/v1/ingest", "Bearer token", {"x": 1})]
 
 
-def test_post_batch_does_not_forward_token_to_redirect_target():
+def test_post_batch_does_not_forward_token_to_redirect_target(start_http_server):
     redirected_requests = []
 
-    class TargetHandler(BaseHTTPRequestHandler):
+    class TargetHandler(_QuietHandler):
         def do_POST(self):
             redirected_requests.append(self.headers.get("Authorization"))
             self.send_response(200)
@@ -112,14 +128,9 @@ def test_post_batch_does_not_forward_token_to_redirect_target():
             self.end_headers()
             self.wfile.write(b"{}")
 
-        def log_message(self, *_args):
-            pass
+    target = start_http_server(TargetHandler)
 
-    target = ThreadingHTTPServer(("127.0.0.1", 0), TargetHandler)
-    target_thread = threading.Thread(target=target.serve_forever, daemon=True)
-    target_thread.start()
-
-    class RedirectHandler(BaseHTTPRequestHandler):
+    class RedirectHandler(_QuietHandler):
         def do_POST(self):
             self.send_response(302)
             self.send_header(
@@ -127,23 +138,10 @@ def test_post_batch_does_not_forward_token_to_redirect_target():
             )
             self.end_headers()
 
-        def log_message(self, *_args):
-            pass
-
-    source = ThreadingHTTPServer(("127.0.0.1", 0), RedirectHandler)
-    source_thread = threading.Thread(target=source.serve_forever, daemon=True)
-    source_thread.start()
-    try:
-        with pytest.raises(HTTPError) as error:
-            uploader.post_batch(
-                f"http://127.0.0.1:{source.server_port}", "bearer-secret", {"x": 1}
-            )
-        assert error.value.code == 302
-        assert redirected_requests == []
-    finally:
-        source.shutdown()
-        source.server_close()
-        source_thread.join(timeout=1)
-        target.shutdown()
-        target.server_close()
-        target_thread.join(timeout=1)
+    source = start_http_server(RedirectHandler)
+    with pytest.raises(HTTPError) as error:
+        uploader.post_batch(
+            f"http://127.0.0.1:{source.server_port}", "bearer-secret", {"x": 1}
+        )
+    assert error.value.code == 302
+    assert redirected_requests == []

@@ -131,8 +131,8 @@ def _validate_ingest_url(url):
         or not parsed.hostname
         or parsed.username is not None
         or parsed.password is not None
-        or parsed.query
-        or parsed.fragment
+        or "?" in url
+        or "#" in url
     ):
         raise ValueError(
             "ingest URL must use HTTP(S), include a host, and omit credentials, query, and fragment"
