@@ -4,7 +4,7 @@ Also listen for events (TEMPERATURE_LEVEL etc.). NON-destructive commands only.
 import asyncio, struct, sys, json, time
 sys.path.insert(0, "whoomp/scripts")
 from packet import WhoopPacket, PacketType, CommandNumber, EventNumber  # noqa
-from packet_errors import is_malformed_packet_error
+from packet_errors import CallbackFailure
 from bleak import BleakClient, BleakScanner  # noqa
 
 from device_config import DEVICE_UUID as ADDR
@@ -16,6 +16,7 @@ DATA = "61080005-8d6d-82b8-614a-1c8cb0f8dcc6"
 out = open("command_probe.jsonl", "w", buffering=1)
 responses = {}
 events_seen = {}
+callback_failure = CallbackFailure()
 
 # Safe, read-only commands to probe (avoid reboot/trim/firmware/shipmode/alarm-run/DFU/SET_*)
 SAFE = [
@@ -38,7 +39,8 @@ def cmd_cb(_, d):
                               "data_hex": pkt.data.hex(), "str": str(pkt)}) + "\n")
         print(f"  <= {cmdname}: {str(pkt)[:120]}", flush=True)
     except Exception as e:
-        out.write(json.dumps({"chan": "cmd_from", "err": str(e), "hex": raw.hex()}) + "\n")
+        if callback_failure.report(e):
+            out.write(json.dumps({"chan": "cmd_from", "err": str(e), "hex": raw.hex()}) + "\n")
 
 
 def event_cb(_, d):
@@ -51,8 +53,7 @@ def event_cb(_, d):
             events_seen[en] = events_seen.get(en, 0) + 1
             out.write(json.dumps({"chan": "events", "event": en, "data_hex": pkt.data.hex()}) + "\n")
     except Exception as exc:
-        if not is_malformed_packet_error(exc):
-            raise
+        callback_failure.report(exc)
 
 
 async def send(client, cmdname, payload=b"\x00"):
@@ -72,15 +73,15 @@ async def main():
         await client.start_notify(EVENTS, event_cb)
         await client.start_notify(DATA, lambda _, d: None)
         await send(client, "GET_BATTERY_LEVEL")  # bond
-        await asyncio.sleep(1.5)
+        await callback_failure.sleep(1.5)
         for name in SAFE:
             try:
                 await send(client, name)
             except Exception as e:
                 print(f"    send {name} failed: {e}", flush=True)
-            await asyncio.sleep(0.8)
+            await callback_failure.sleep(0.8)
         print("\nlistening 15s for periodic events (temp etc.)...", flush=True)
-        await asyncio.sleep(15)
+        await callback_failure.sleep(15)
         print(f"\n=== RESPONSES received for: {sorted(responses.keys())} ===", flush=True)
         print(f"=== EVENTS seen: {events_seen} ===", flush=True)
 

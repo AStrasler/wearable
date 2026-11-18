@@ -16,7 +16,7 @@ from collections import Counter
 
 sys.path.insert(0, "whoomp/scripts")
 from packet import WhoopPacket, PacketType, CommandNumber, MetadataType  # noqa: E402
-from packet_errors import is_malformed_packet_error
+from packet_errors import CallbackFailure
 from bleak import BleakClient, BleakScanner  # noqa: E402
 
 from device_config import DEVICE_UUID as ADDR
@@ -28,6 +28,7 @@ SECS = int(sys.argv[1]) if len(sys.argv) > 1 else 15
 
 databuf = bytearray()
 resp_q: asyncio.Queue = asyncio.Queue()
+callback_failure = CallbackFailure()
 
 
 def data_cb(_, d):
@@ -39,8 +40,7 @@ def cmd_from_cb(_, d):
         pkt = WhoopPacket.from_data(bytes(d))
         resp_q.put_nowait((pkt.cmd, bytes(pkt.data)))
     except Exception as exc:
-        if not is_malformed_packet_error(exc):
-            raise
+        callback_failure.report(exc)
 
 
 async def send(c, cmd, payload=b"\x00", resp=False):
@@ -55,7 +55,7 @@ async def req(c, cmd, timeout=4.0):
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
-            rc, d = await asyncio.wait_for(resp_q.get(), timeout=deadline - time.time())
+            rc, d = await callback_failure.get(resp_q, timeout=deadline - time.time())
         except asyncio.TimeoutError:
             break
         if rc == cmd.value:
@@ -84,14 +84,14 @@ async def main():
         await c.start_notify(EVENTS, lambda _, d: None)
         await c.start_notify(DATA, data_cb)
         await send(c, CommandNumber.GET_BATTERY_LEVEL, b"\x00", resp=True)
-        await asyncio.sleep(1.5)
+        await callback_failure.sleep(1.5)
         clk = await req(c, CommandNumber.GET_CLOCK)
         now = struct.unpack_from("<I", clk, 2)[0] if clk and len(clk) >= 6 else None
         print(f"now device clock: {now}", flush=True)
         databuf.clear()
         await send(c, CommandNumber.SEND_HISTORICAL_DATA, b"\x00")
         print(f"offloading {SECS}s (NO ack)...", flush=True)
-        await asyncio.sleep(SECS)
+        await callback_failure.sleep(SECS)
         await send(c, CommandNumber.ABORT_HISTORICAL_TRANSMITS, b"\x00")
 
     types = Counter()
