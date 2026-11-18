@@ -26,7 +26,7 @@ STATIC = Path(__file__).parent / "static"
 
 clients = set()
 state = {"connected": False, "device": None, "battery": None, "fw": None, "bonded": False}
-outq: asyncio.Queue = asyncio.Queue()
+outq: asyncio.Queue = asyncio.Queue(maxsize=0)  # Unbounded by design; emit cannot raise QueueFull.
 ble = {"client": None}
 _buf = {"b": b"", "need": 0}
 
