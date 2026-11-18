@@ -123,7 +123,7 @@ def query_stream(conn, kind, device_id, start, end, limit=5000, max_points=None)
         "WHERE device_id = %s AND ts >= to_timestamp(%s) AND ts <= to_timestamp(%s) "
         "ORDER BY ts LIMIT %s"
     ).format(_sql_identifiers(cols), pg_sql.Identifier(table))
-    rows = conn.execute(query, (device_id, start, end, limit)).fetchall()
+    rows = conn.execute(query, (device_id, start, end, limit)).fetchall()  # nosec B608 -- identifiers use psycopg.sql.Identifier; values stay bound.
     out = [dict(zip(cols, r)) for r in rows]
     return _augment_units(kind, out)
 
@@ -153,7 +153,7 @@ def _query_stream_downsampled(conn, kind, table, value_cols, device_id,
         "WHERE device_id = %s AND ts >= to_timestamp(%s) AND ts <= to_timestamp(%s) "
         "GROUP BY 1 ORDER BY 1 LIMIT %s"
     ).format(avg_exprs, pg_sql.Identifier(table))
-    rows = conn.execute(query, (width, device_id, start, end, limit)).fetchall()
+    rows = conn.execute(query, (width, device_id, start, end, limit)).fetchall()  # nosec B608 -- identifiers use psycopg.sql.Identifier; values stay bound.
     out = []
     for r in rows:
         d = dict(zip(cols, r))
