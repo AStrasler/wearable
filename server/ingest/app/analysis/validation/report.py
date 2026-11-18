@@ -64,8 +64,6 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
 
-from psycopg import sql as pg_sql
-
 from .stats import (
     BAResult,
     KappaResult,
@@ -544,26 +542,27 @@ def load_computed_from_db(
     if not cols_wanted:
         return result
 
-    select_cols = pg_sql.SQL(", ").join(
-        pg_sql.SQL("{} AS {}").format(
-            pg_sql.Identifier(column), pg_sql.Identifier(metric)
-        )
-        for metric, column in cols_wanted.items()
+    # Select the fixed allowlisted metric columns so neither identifiers nor
+    # values are interpolated into SQL. Only requested metrics are returned below.
+    query = (
+        "SELECT day, hrv_rmssd, resting_hr, spo2_pct, skin_temp_c, resp_rate, "
+        "recovery_score, day_strain, sleep_total_min, sleep_efficiency "
+        "FROM daily_metrics WHERE device_id = %s AND day = ANY(%s::date[])"
     )
-    query = pg_sql.SQL(
-        "SELECT day, {} FROM {} WHERE device_id = %s AND day = ANY(%s::date[])"
-    ).format(select_cols, pg_sql.Identifier("daily_metrics"))
 
     with conn.cursor() as cur:
         cur.execute(query, (device_id, list(nights)))
         for row in cur.fetchall():
             row_date = row[0]
-            for i, metric in enumerate(cols_wanted):
+            for i, metric in enumerate(_DM_COLS):
+                if metric not in cols_wanted:
+                    continue
                 val = row[i + 1]
-                if val is not None:
-                    try:
-                        result[(row_date, metric)] = float(val)
-                    except (TypeError, ValueError):
-                        continue
+                if val is None:
+                    continue
+                try:
+                    result[(row_date, metric)] = float(val)
+                except (TypeError, ValueError):
+                    continue
 
     return result

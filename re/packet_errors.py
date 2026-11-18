@@ -12,4 +12,4 @@ def is_malformed_packet_error(error: Exception) -> bool:
     """Return whether ``error`` is a known invalid or incomplete wire frame."""
     if isinstance(error, (IndexError, ValueError, struct.error)):
         return True
-    return type(error) is Exception and str(error).startswith("invalid packet ")
+    return str(error).startswith("invalid packet ")
